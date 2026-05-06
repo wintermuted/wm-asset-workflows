@@ -1,0 +1,121 @@
+:root {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #475569;
+  --border: #dbe2ee;
+  --accent: #0ea5e9;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f172a;
+  --panel: #111827;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: #334155;
+  --accent: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top left, #dbeafe 0%, var(--bg) 45%);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] body {
+  background: radial-gradient(circle at top left, #172554 0%, var(--bg) 45%);
+}
+
+.page-header {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 1rem;
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+}
+
+.page-header p {
+  margin: 0.5rem 0 1rem;
+  color: var(--muted);
+}
+
+.controls button {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  cursor: pointer;
+}
+
+.layout {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 1.25rem 2rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.panel {
+  background: color-mix(in oklab, var(--panel) 90%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.logo-grid,
+.diagram-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.tile {
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  padding: 0.8rem;
+  background: var(--panel);
+}
+
+.tile h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.98rem;
+}
+
+.tile p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.logo-frame {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 0.75rem;
+  min-height: 140px;
+  margin-bottom: 0.6rem;
+  background: linear-gradient(140deg, color-mix(in oklab, var(--panel) 80%, #dbeafe), var(--panel));
+}
+
+.logo-frame img {
+  width: min(120px, 100%);
+  height: auto;
+}
+
+.mermaid {
+  overflow-x: auto;
+}

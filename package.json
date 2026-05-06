@@ -1,0 +1,17 @@
+{
+  "name": "wm-asset-workflows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SVG-first logo and glyph workflows with markdown diagrams, preview, and screenshot capture.",
+  "scripts": {
+    "preview": "node scripts/node/serve-preview.mjs",
+    "build:specs": "node scripts/node/build-spec-index.mjs",
+    "generate:png": "python3 scripts/python/generate_images.py",
+    "capture": "node scripts/node/capture-preview.mjs",
+    "workflow:logo": "npm run build:specs && npm run generate:png && npm run capture"
+  },
+  "devDependencies": {
+    "playwright": "^1.54.0"
+  }
+}

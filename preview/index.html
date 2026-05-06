@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>wm-asset-workflows Preview</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <h1>wm-asset-workflows</h1>
+      <p>SVG-first logos and glyphs with markdown diagrams and screenshot capture.</p>
+      <div class="controls">
+        <button id="theme-toggle" type="button">Toggle Theme</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Logo and Glyph Sources</h2>
+        <div id="logo-grid" class="logo-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Markdown Diagram Specs</h2>
+        <div id="diagram-grid" class="diagram-grid"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "assets": [
+    {
+      "id": "wm-spark",
+      "label": "WM Spark",
+      "source": "assets/svg/wm-spark.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    }
+  ]
+}

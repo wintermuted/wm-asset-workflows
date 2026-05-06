@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+
+outputs/png/*
+outputs/screenshots/*
+!outputs/png/.gitkeep
+!outputs/screenshots/.gitkeep
+
+preview/spec-index.json
