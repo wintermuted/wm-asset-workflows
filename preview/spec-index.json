@@ -1,0 +1,10 @@
+{
+  "diagrams": [
+    {
+      "id": "brand-system-1",
+      "title": "Brand System Diagram",
+      "source": "specs/brand-system.md",
+      "code": "flowchart LR\n  A[Asset Request] --> B[SVG Source Authoring]\n  B --> C[Preview in Browser]\n  C --> D[PNG Generation]\n  D --> E[Screenshot Capture]\n  E --> F[Review + Iterate]"
+    }
+  ]
+}
