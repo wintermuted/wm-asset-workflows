@@ -1,0 +1,26 @@
+{
+  "assets": [
+    {
+      "id": "wm-spark",
+      "label": "WM Spark",
+      "source": "assets/svg/wm-spark.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "gol-mark",
+      "label": "Conway's Game of Life",
+      "source": "assets/svg/gol-mark.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    }
+  ]
+}
