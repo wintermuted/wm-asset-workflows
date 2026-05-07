@@ -11,6 +11,9 @@
     "capture": "node scripts/node/capture-preview.mjs",
     "workflow:logo": "npm run build:specs && npm run generate:png && npm run capture"
   },
+  "dependencies": {
+    "@wintermuted/ui-theme": "file:../wintermuted-ui-theme"
+  },
   "devDependencies": {
     "playwright": "^1.54.0"
   }

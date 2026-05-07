@@ -48,7 +48,7 @@ function renderLogos(assets) {
 
   for (const asset of assets) {
     const tile = document.createElement("article");
-    tile.className = "tile";
+    tile.className = "asset-tile";
 
     const frame = document.createElement("div");
     frame.className = "logo-frame";
@@ -74,7 +74,7 @@ async function renderDiagrams() {
 
   for (const item of diagramData) {
     const tile = document.createElement("article");
-    tile.className = "tile";
+    tile.className = "asset-tile";
 
     const title = document.createElement("h3");
     title.textContent = item.title;
@@ -107,8 +107,8 @@ async function init() {
 
 init().catch((error) => {
   console.error(error);
-  const layout = document.querySelector(".layout");
-  if (layout) {
-    layout.innerHTML = `<section class="panel"><h2>Preview failed</h2><p>${error.message}</p></section>`;
+  const content = document.querySelector(".preview-content");
+  if (content) {
+    content.innerHTML = `<section class="card"><div class="card-header"><h3>Preview failed</h3></div><div class="card-body"><p>${error.message}</p></div></section>`;
   }
 });

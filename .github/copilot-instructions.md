@@ -45,6 +45,16 @@ outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
 - **PNG generation** → script-driven via Pillow; controlled through the spec/manifest, not manual drawing
 - **Naming** → kebab-case asset ids, deterministic output filenames, variant suffixes for size/theme
 
+## Prompt Library
+
+This repo includes a VS Code Copilot Chat prompt file for the primary authoring workflow:
+
+| Prompt | Location | Use When... |
+|--------|---------|-------------|
+| **Create SVG Asset** | `.github/prompts/create-svg-asset.prompt.md` | Creating a new logo or glyph from scratch via a guided interview |
+
+Use `/create-svg-asset` in Copilot Chat to start an interactive session. The prompt handles: design interview → SVG generation → manifest registration → pipeline run → iteration loop.
+
 ## Copilot Chat Workflow
 
 1. Add or edit SVG in `assets/svg/` and register in `manifests/assets.json`
