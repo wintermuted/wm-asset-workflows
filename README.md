@@ -12,48 +12,126 @@ Standalone workflow repo for SVG logos/glyphs, markdown-driven Mermaid diagrams,
 
 ## Repository Layout
 
-- `assets/svg/` source logos and glyphs
-- `specs/` markdown specs (supports Mermaid blocks)
-- `manifests/assets.json` asset catalog for generation and preview
-- `preview/` browser preview app
-- `scripts/node/` preview server, spec index builder, screenshot capture
-- `scripts/python/` deterministic PNG generation
-- `outputs/png/` generated PNGs
-- `outputs/screenshots/` browser capture outputs
+```
+assets/svg/          SVG source files — source of truth, never overwritten by scripts
+specs/               Markdown specs with Mermaid blocks for the diagram lane
+manifests/assets.json  Asset catalog consumed by preview and generator scripts
+preview/             Static browser preview app (HTML/CSS/JS, uses @wintermuted/ui-theme)
+scripts/node/        Orchestration scripts: serve-preview, build-spec-index, capture-preview
+scripts/python/      Deterministic image generators (Pillow)
+outputs/png/         Generated PNG assets (git-ignored except .gitkeep)
+outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
+```
 
 ## Prerequisites
 
 - Node.js 18+
 - Python 3.10+
-
-Install dependencies:
+- Playwright Chromium (one-time install)
 
 ```bash
 npm install
 pip install -r requirements.txt
+npx playwright install chromium   # one-time browser install
 ```
 
 ## Commands
 
 ```bash
-npm run build:specs     # Parse markdown specs into preview/spec-index.json
-npm run preview         # Start local preview server on http://localhost:4178/preview/index.html
+npm run build:specs     # Parse specs/*.md Mermaid blocks → preview/spec-index.json
+npm run preview         # Start local preview server at http://localhost:4178/preview/index.html
 npm run generate:png    # Generate deterministic PNG assets via Pillow
-npm run capture         # Capture light/dark screenshots of preview using Playwright
-npm run workflow:logo   # Run build:specs + generate:png + capture
+npm run capture         # Capture light/dark screenshots using Playwright
+npm run workflow:logo   # Run build:specs + generate:png + capture in sequence
 ```
 
-## Authoring Workflow
+## Prompt-Driven Authoring
 
-1. Add or edit SVG sources in `assets/svg/`.
-2. Update `manifests/assets.json` to register new assets.
-3. Add or edit markdown Mermaid specs in `specs/`.
-4. Run `npm run build:specs`.
-5. Run `npm run preview` and inspect results in browser.
-6. Run `npm run generate:png` and `npm run capture` for outputs.
+Logos and glyphs are designed to be created primarily through VS Code Copilot Chat. Use the provided prompt file to start an interactive session:
+
+```
+/create-svg-asset
+```
+
+The agent will interview you for the design intent, generate the SVG, register it in the manifest, and run the pipeline. See [docs/prompt-driven-authoring.md](docs/prompt-driven-authoring.md) for example prompts and SVG conventions.
+
+## Usage Guide
+
+### Adding a New Logo or Glyph (Manual)
+
+1. Author the SVG in `assets/svg/<id>.svg`. Keep it minimal and editable — no baked raster artifacts.
+2. Register it in `manifests/assets.json`:
+
+   ```json
+   {
+     "assets": [
+       {
+         "id": "my-glyph",
+         "label": "My Glyph",
+         "source": "assets/svg/my-glyph.svg",
+         "variants": [
+           { "size": 64, "theme": "dark" },
+           { "size": 64, "theme": "light" }
+         ]
+       }
+     ]
+   }
+   ```
+
+3. Run `npm run build:specs` (if specs also changed) then `npm run preview`.
+4. Inspect the logo tile in the browser at `http://localhost:4178/preview/index.html`.
+5. Run `npm run generate:png` to produce `outputs/png/logo-sheet.png`.
+6. Run `npm run capture` to produce `outputs/screenshots/preview-light.png` and `preview-dark.png`.
+
+### Adding a Mermaid Diagram Spec
+
+1. Create or edit a markdown file in `specs/`, e.g. `specs/my-system.md`.
+2. Add a Mermaid fenced block:
+
+   ````markdown
+   ```mermaid
+   flowchart LR
+     A[Input] --> B[Process] --> C[Output]
+   ```
+   ````
+
+3. Run `npm run build:specs` to update `preview/spec-index.json`.
+4. Refresh the preview at `http://localhost:4178/preview/index.html` — the diagram appears in the Markdown Diagram Specs panel.
+
+### Running the Full Workflow
+
+```bash
+npm run workflow:logo
+```
+
+This runs `build:specs → generate:png → capture` in sequence. Use it after any authoring change to produce fresh outputs.
+
+### Theme Toggle and Capture
+
+The preview supports a `?theme=light` or `?theme=dark` query param for deterministic capture. Click **Toggle Theme** in the header or append `?theme=dark` to the URL manually. The capture script automatically captures both variants.
+
+### Serving the Preview
+
+```bash
+npm run preview
+# → http://localhost:4178/preview/index.html
+```
+
+To use a different port:
+
+```bash
+node scripts/node/serve-preview.mjs --port 5000
+```
+
+To stop the server, kill the process holding the port:
+
+```bash
+lsof -ti :4178 | xargs kill -9
+```
 
 ## Notes
 
-- Mermaid is intended for diagram specs, not logo construction.
-- `outputs/` is treated as generated content and mostly git-ignored.
-- The preview supports `?theme=light` and `?theme=dark` query params for deterministic capture.
+- SVG sources in `assets/svg/` are the canonical source of truth — scripts never overwrite them.
+- Mermaid blocks are for flow/architecture diagrams, not brand mark construction.
+- `outputs/` is treated as generated content — do not commit generated PNGs unless intentional.
+- `preview/spec-index.json` is also git-ignored (it is rebuilt from `specs/` on demand).
