@@ -22,11 +22,24 @@ function applyThemeFromQuery() {
 
 function wireThemeToggle() {
   const button = document.getElementById("theme-toggle");
+  const syncToggleIcon = () => {
+    const current = document.documentElement.getAttribute("data-theme") || "light";
+    const dark = current === "dark";
+    const iconName = dark ? "sun" : "moon";
+    const label = dark ? "Light" : "Dark";
+    button.innerHTML = `<i data-lucide="${iconName}" aria-hidden="true"></i><span>${label}</span>`;
+    button.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  syncToggleIcon();
+
   button?.addEventListener("click", () => {
     const current = document.documentElement.getAttribute("data-theme") || "light";
     const next = current === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", next);
     localStorage.setItem("wm-assets-theme", next);
+    syncToggleIcon();
 
     if (typeof mermaid !== "undefined") {
       mermaid.initialize({
@@ -37,6 +50,32 @@ function wireThemeToggle() {
       renderDiagrams();
     }
   });
+}
+
+function wireTopNav() {
+  const tabs = Array.from(document.querySelectorAll("[data-preview-tab]"));
+  if (!tabs.length) return;
+
+  const setActive = () => {
+    const hash = (window.location.hash || "#logos").replace("#", "");
+
+    tabs.forEach((tab) => {
+      const isActive = tab.getAttribute("data-preview-tab") === hash;
+      tab.classList.toggle("is-active", isActive);
+      if (isActive) {
+        tab.setAttribute("aria-current", "page");
+      } else {
+        tab.removeAttribute("aria-current");
+      }
+    });
+  };
+
+  if (!window.location.hash) {
+    window.location.hash = "#logos";
+  }
+
+  window.addEventListener("hashchange", setActive);
+  setActive();
 }
 
 let diagramData = [];
@@ -94,6 +133,7 @@ async function renderDiagrams() {
 async function init() {
   applyThemeFromQuery();
   wireThemeToggle();
+  wireTopNav();
 
   const [assetManifest, specs] = await Promise.all([
     loadJson("../manifests/assets.json"),

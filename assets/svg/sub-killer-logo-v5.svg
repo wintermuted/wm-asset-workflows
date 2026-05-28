@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Sub Killer Logo V5</title>
+  <desc id="desc">Monoline-style SK monogram with wave baseline and strike.</desc>
+  <rect width="128" height="128" rx="28" fill="#101828"/>
+  <path fill="#5EEAD4" d="M32 38H78L86 46H40V56H74V64H32V38Z"/>
+  <path fill="#5EEAD4" d="M88 38H96V53L108 38H118L103 56L120 78H109L96 61V78H88V38Z"/>
+  <path fill="#F8FAFC" d="M24 90C35 84 46 81 58 81C72 81 86 85 104 94L99 102C83 94 70 90 58 90C48 90 38 93 28 98L24 90Z"/>
+  <path fill="#818CF8" d="M30 102L92 40L98 46L36 108Z"/>
+</svg>

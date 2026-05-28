@@ -10,6 +10,7 @@ Standalone repo for SVG-first logo/glyph authoring, markdown-driven diagrams, de
 | Image generation | Python 3.10+, Pillow |
 | Screenshot capture | Playwright (Chromium headless) |
 | Preview server | `node:http` (zero-dependency) |
+| Icon paths | `lucide` (declared dependency) |
 
 ## Commands
 
@@ -64,6 +65,33 @@ Use `/create-svg-asset` in Copilot Chat to start an interactive session. The pro
 5. Run `npm run generate:png` for image outputs
 6. Run `npm run capture` for browser screenshots
 7. Iterate on SVG source or spec and repeat from step 3
+
+## Using Lucide Icons in SVGs
+
+`lucide` is declared as a dependency. After `npm install` it is available at:
+
+```
+node_modules/lucide/dist/esm/icons/<icon-name>.js
+```
+
+Each file exports a `__iconNode` array of `["path", { d: "..." }]` tuples on a **24×24 viewBox**. Use these `d` strings directly in SVG `<path>` elements — never hand-draw approximations.
+
+**Fallback while proxy blocks install:** sibling projects `sub-killer` and `game-of-life` both have `lucide-react` installed. Read icons from:
+
+```
+../sub-killer/node_modules/lucide-react/dist/esm/icons/<icon-name>.js
+```
+
+**Icon naming:** React component names map to kebab-case filenames, e.g. `RefreshCw` → `refresh-cw.js`.
+
+**Embedding in SVG:** scale with a `<g transform="translate(tx, ty) scale(s)">` wrapper. Stroke attributes (`fill="none"`, `stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`) go on the `<g>`, not individual paths.
+
+**Quick lookup command:**
+```bash
+cat node_modules/lucide/dist/esm/icons/refresh-cw.js
+# or fallback:
+cat ../sub-killer/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+```
 
 ## Notes
 

@@ -21,6 +21,127 @@
         { "size": 128, "theme": "light" },
         { "size": 128, "theme": "dark" }
       ]
+    },
+    {
+      "id": "wm-wintermuted-mark",
+      "label": "Wintermuted Mark",
+      "source": "assets/svg/wm-wintermuted-mark.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-wrap-wide-balanced",
+      "label": "Wintermuted Wrap Wide Balanced",
+      "source": "assets/svg/wm-wintermuted-wrap-wide-balanced.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-wrap-wide-horizontal",
+      "label": "Wintermuted Wrap Wide Horizontal",
+      "source": "assets/svg/wm-wintermuted-wrap-wide-horizontal.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-wrap-wide-tall",
+      "label": "Wintermuted Wrap Wide Tall",
+      "source": "assets/svg/wm-wintermuted-wrap-wide-tall.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-wrap-wide-heavy",
+      "label": "Wintermuted Wrap Wide Heavy",
+      "source": "assets/svg/wm-wintermuted-wrap-wide-heavy.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-wrap-wide-max",
+      "label": "Wintermuted Wrap Wide Max",
+      "source": "assets/svg/wm-wintermuted-wrap-wide-max.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "sub-killer-savings-v1",
+      "label": "Sub Killer Savings V1",
+      "source": "assets/svg/sub-killer-savings-v1.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "sub-killer-savings-v2",
+      "label": "Sub Killer Savings V2",
+      "source": "assets/svg/sub-killer-savings-v2.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "sub-killer-savings-v3",
+      "label": "Sub Killer Savings V3",
+      "source": "assets/svg/sub-killer-savings-v3.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "sub-killer-savings-v4",
+      "label": "Sub Killer Savings V4",
+      "source": "assets/svg/sub-killer-savings-v4.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "sub-killer-savings-v5",
+      "label": "Sub Killer Savings V5",
+      "source": "assets/svg/sub-killer-savings-v5.svg",
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
     }
   ]
 }

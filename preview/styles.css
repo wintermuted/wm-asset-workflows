@@ -4,7 +4,7 @@
 .preview-shell {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 2rem 1.25rem;
+  padding: 1.25rem;
 }
 
 .preview-content {
@@ -12,15 +12,16 @@
   gap: 1rem;
 }
 
-/* ── Asset grid ─────────────────────────────────────────────────────────── */
+#logos,
+#diagrams {
+  scroll-margin-top: 80px;
+}
 
 .asset-grid {
   display: grid;
   gap: 0.85rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
-
-/* ── Asset tile ─────────────────────────────────────────────────────────── */
 
 .asset-tile {
   border: 1px solid var(--wm-color-border);
@@ -41,8 +42,6 @@
   color: var(--wm-color-text-muted);
 }
 
-/* ── Logo frame ─────────────────────────────────────────────────────────── */
-
 .logo-frame {
   display: flex;
   align-items: center;
@@ -58,23 +57,6 @@
   max-width: 100%;
   max-height: 80px;
   object-fit: contain;
-}
-  font-size: 0.85rem;
-}
-
-.logo-frame {
-  display: grid;
-  place-items: center;
-  border: 1px dashed var(--border);
-  border-radius: 0.75rem;
-  min-height: 140px;
-  margin-bottom: 0.6rem;
-  background: linear-gradient(140deg, color-mix(in oklab, var(--panel) 80%, #dbeafe), var(--panel));
-}
-
-.logo-frame img {
-  width: min(120px, 100%);
-  height: auto;
 }
 
 .mermaid {
