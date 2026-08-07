@@ -11,7 +11,7 @@
         },
         "appIcon": {
           "title": "Web App Icon",
-          "assetId": "wm-wintermuted-mark",
+          "assetId": "wm-wintermuted-mark-no-outline-large-cube",
           "note": "PWA and launcher icon source"
         },
         "logoMark": {
