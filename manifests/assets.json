@@ -2,6 +2,7 @@
   "projects": [
     {
       "name": "Wintermuted Brand",
+      "primaryAssetId": "wm-wintermuted-mark",
       "agentSteer": {
         "notes": [
           "Use these source materials when refining Wintermuted brand assets.",

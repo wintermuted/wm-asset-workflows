@@ -104,7 +104,7 @@ function wireTopNav() {
 let diagramData = [];
 let assetData = [];
 let assetById = new Map();
-let projectSteerByName = new Map();
+let projectMetaByName = new Map();
 let activeGroupingMode = "project";
 
 const GROUPING_MODES = [
@@ -140,14 +140,30 @@ function resolveAssetPath(value) {
 }
 
 function normalizeProjectSteer(projectName) {
-  const fromManifest = projectSteerByName.get(projectName);
-  if (!fromManifest) {
+  const projectMeta = projectMetaByName.get(projectName);
+  if (!projectMeta || !projectMeta.agentSteer) {
     return { notes: [], sources: [] };
   }
+
+  const fromManifest = projectMeta.agentSteer;
 
   const notes = Array.isArray(fromManifest.notes) ? fromManifest.notes.map((item) => String(item).trim()).filter(Boolean) : [];
   const sources = Array.isArray(fromManifest.sources) ? fromManifest.sources : [];
   return { notes, sources };
+}
+
+function primaryProjectAsset(projectName, projectAssets) {
+  const projectMeta = projectMetaByName.get(projectName);
+  const primaryAssetId = String(projectMeta?.primaryAssetId || "").trim();
+
+  if (primaryAssetId) {
+    const matched = projectAssets.find((asset) => asset.id === primaryAssetId);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return projectAssets[0] || null;
 }
 
 function projectForAsset(asset) {
@@ -338,7 +354,12 @@ function renderLogos(assets) {
     header.appendChild(count);
     groupSection.appendChild(header);
 
-    for (const asset of groupAssets) {
+    const visibleAssets =
+      activeGroupingMode === "project"
+        ? [primaryProjectAsset(groupName, groupAssets)].filter(Boolean)
+        : groupAssets;
+
+    for (const asset of visibleAssets) {
       const tile = document.createElement("article");
       tile.className = "asset-tile";
 
@@ -593,10 +614,10 @@ async function init() {
   assetData = assetManifest.assets ?? [];
   assetById = new Map(assetData.map((asset) => [asset.id, asset]));
   const projectSteer = Array.isArray(assetManifest.projects) ? assetManifest.projects : [];
-  projectSteerByName = new Map(
+  projectMetaByName = new Map(
     projectSteer
       .filter((project) => project && project.name)
-      .map((project) => [String(project.name).trim(), project.agentSteer || {}])
+      .map((project) => [String(project.name).trim(), project])
   );
   wireGroupingControls();
   renderLogos(assetData);
