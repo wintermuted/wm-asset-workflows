@@ -121,6 +121,11 @@ const GROUPING_MODES = [
   { id: "custom", label: "Custom" }
 ];
 
+// Common icon targets used across web, desktop apps, iOS, and Android.
+const COMMON_PREVIEW_SIZES = [
+  16, 20, 24, 29, 32, 40, 48, 64, 72, 96, 120, 128, 144, 152, 167, 180, 192, 256, 384, 512
+];
+
 function logoTypeForAsset(asset) {
   const raw = String(asset.logoType ?? "").trim();
   return raw || "Uncategorized Type";
@@ -349,9 +354,11 @@ function wireGroupingControls() {
 }
 
 function uniqueSortedSizes(asset) {
-  const variantSizes = (asset.variants ?? []).map((variant) => Number(variant.size)).filter((value) => Number.isFinite(value));
-  const sizes = variantSizes.length ? variantSizes : [32, 64, 128, 256];
-  return Array.from(new Set(sizes)).sort((a, b) => a - b);
+  const variantSizes = (asset.variants ?? [])
+    .map((variant) => Number(variant.size))
+    .filter((value) => Number.isFinite(value));
+  const allSizes = [...COMMON_PREVIEW_SIZES, ...variantSizes];
+  return Array.from(new Set(allSizes)).sort((a, b) => a - b);
 }
 
 function setMainViewVisibility(route) {
@@ -503,16 +510,17 @@ function renderAssetDetail(assetId) {
     const card = document.createElement("article");
     card.className = "size-preview-card";
 
+    const displaySize = Math.min(size, 220);
     const frame = document.createElement("div");
     frame.className = "size-preview-frame";
-    frame.style.width = `${Math.max(size + 32, 120)}px`;
-    frame.style.height = `${Math.max(size + 32, 120)}px`;
+    frame.style.width = `${Math.max(displaySize + 32, 120)}px`;
+    frame.style.height = `${Math.max(displaySize + 32, 120)}px`;
 
     const img = document.createElement("img");
     img.src = `../${asset.source}`;
     img.alt = `${asset.label} at ${size}px`;
-    img.style.maxWidth = `${size}px`;
-    img.style.maxHeight = `${size}px`;
+    img.style.maxWidth = `${displaySize}px`;
+    img.style.maxHeight = `${displaySize}px`;
 
     const caption = document.createElement("p");
     caption.className = "size-preview-caption";
