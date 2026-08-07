@@ -107,6 +107,14 @@ let assetById = new Map();
 let projectMetaByName = new Map();
 let activeGroupingMode = "project";
 
+const PROJECT_ICON_SLOTS = [
+  { id: "favicon", label: "Favicon", usage: "Browser tabs and bookmarks" },
+  { id: "appIcon", label: "App Icon", usage: "PWA launcher and app switchers" },
+  { id: "logoMark", label: "Logo Mark", usage: "Compact nav and small brand surfaces" },
+  { id: "wordmark", label: "Wordmark", usage: "Headers, login, and marketing bars" },
+  { id: "socialPreview", label: "Social Preview", usage: "Open Graph and shared links" }
+];
+
 const GROUPING_MODES = [
   { id: "project", label: "Project" },
   { id: "type", label: "Type" },
@@ -150,6 +158,64 @@ function normalizeProjectSteer(projectName) {
   const notes = Array.isArray(fromManifest.notes) ? fromManifest.notes.map((item) => String(item).trim()).filter(Boolean) : [];
   const sources = Array.isArray(fromManifest.sources) ? fromManifest.sources : [];
   return { notes, sources };
+}
+
+function normalizeProjectSlots(projectName) {
+  const projectMeta = projectMetaByName.get(projectName);
+  const slotMap = projectMeta?.iconSlots && typeof projectMeta.iconSlots === "object"
+    ? projectMeta.iconSlots
+    : {};
+
+  return PROJECT_ICON_SLOTS.map((slot) => {
+    const configured = slotMap[slot.id] || {};
+    return {
+      ...slot,
+      title: String(configured.title || slot.label),
+      note: String(configured.note || "").trim(),
+      assetId: String(configured.assetId || "").trim(),
+      src: String(configured.src || "").trim(),
+      url: String(configured.url || "").trim()
+    };
+  });
+}
+
+function resolveSlotPreview(slot) {
+  if (slot.assetId) {
+    const asset = assetById.get(slot.assetId);
+    if (asset) {
+      return {
+        sourceType: "asset",
+        src: resolveAssetPath(asset.source),
+        label: asset.label,
+        href: `#asset/${encodeURIComponent(asset.id)}`
+      };
+    }
+  }
+
+  if (slot.src) {
+    return {
+      sourceType: "src",
+      src: resolveAssetPath(slot.src),
+      label: slot.src,
+      href: ""
+    };
+  }
+
+  if (slot.url) {
+    return {
+      sourceType: "url",
+      src: "",
+      label: slot.url,
+      href: slot.url
+    };
+  }
+
+  return {
+    sourceType: "empty",
+    src: "",
+    label: "",
+    href: ""
+  };
 }
 
 function primaryProjectAsset(projectName, projectAssets) {
@@ -467,11 +533,13 @@ function renderProjectDetail(projectName) {
   const notesList = document.getElementById("project-steer-notes");
   const sourcesGrid = document.getElementById("project-steer-sources");
   const emptyState = document.getElementById("project-steer-empty");
-  if (!title || !meta || !deepLink || !grid || !notesList || !sourcesGrid || !emptyState) return;
+  const slotsGrid = document.getElementById("project-icon-slots");
+  if (!title || !meta || !deepLink || !grid || !notesList || !sourcesGrid || !emptyState || !slotsGrid) return;
 
   grid.innerHTML = "";
   notesList.innerHTML = "";
   sourcesGrid.innerHTML = "";
+  slotsGrid.innerHTML = "";
   const targetProject = String(projectName || "").trim();
   const projectAssets = assetData
     .filter((asset) => projectForAsset(asset) === targetProject)
@@ -492,8 +560,70 @@ function renderProjectDetail(projectName) {
   deepLink.href = window.location.href;
 
   const steer = normalizeProjectSteer(targetProject);
+  const slots = normalizeProjectSlots(targetProject);
   const hasSteer = steer.notes.length > 0 || steer.sources.length > 0;
   emptyState.classList.toggle("is-hidden", hasSteer);
+
+  for (const slot of slots) {
+    const card = document.createElement("article");
+    card.className = "icon-slot-card";
+
+    const header = document.createElement("div");
+    header.className = "icon-slot-header";
+
+    const heading = document.createElement("h5");
+    heading.textContent = slot.title;
+
+    const usage = document.createElement("p");
+    usage.className = "icon-slot-usage";
+    usage.textContent = slot.usage;
+
+    const preview = resolveSlotPreview(slot);
+    const body = document.createElement("div");
+    body.className = "icon-slot-body";
+
+    if (preview.sourceType === "asset" || preview.sourceType === "src") {
+      const img = document.createElement("img");
+      img.className = "icon-slot-image";
+      img.src = preview.src;
+      img.alt = `${slot.title} preview`;
+
+      if (preview.href) {
+        const link = document.createElement("a");
+        link.href = preview.href;
+        link.className = "icon-slot-image-link";
+        link.appendChild(img);
+        body.appendChild(link);
+      } else {
+        body.appendChild(img);
+      }
+    } else if (preview.sourceType === "url") {
+      const link = document.createElement("a");
+      link.href = preview.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = preview.label;
+      body.appendChild(link);
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "icon-slot-empty";
+      empty.textContent = "No source assigned";
+      body.appendChild(empty);
+    }
+
+    if (slot.note) {
+      const note = document.createElement("p");
+      note.className = "icon-slot-note";
+      note.textContent = slot.note;
+      body.appendChild(note);
+    }
+
+    header.appendChild(heading);
+    header.appendChild(usage);
+    card.appendChild(header);
+    card.appendChild(body);
+    slotsGrid.appendChild(card);
+  }
 
   for (const note of steer.notes) {
     const item = document.createElement("li");

@@ -215,6 +215,69 @@
   background: var(--wm-color-surface-solid);
 }
 
+.project-slots-section {
+  margin: 0 0 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface-solid);
+}
+
+.project-slots-section h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.9rem;
+}
+
+.project-icon-slots {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.icon-slot-card {
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface-strong);
+  padding: 0.65rem;
+}
+
+.icon-slot-header h5 {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.icon-slot-usage {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: var(--wm-color-text-muted);
+}
+
+.icon-slot-body {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.icon-slot-image-link {
+  display: inline-flex;
+  width: fit-content;
+}
+
+.icon-slot-image {
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  border-radius: var(--wm-radius-xs);
+  background: var(--wm-color-surface-solid);
+}
+
+.icon-slot-empty,
+.icon-slot-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--wm-color-text-muted);
+}
+
 .project-steer-section h4 {
   margin: 0 0 0.5rem;
   font-size: 0.9rem;

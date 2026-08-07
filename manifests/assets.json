@@ -3,6 +3,33 @@
     {
       "name": "Wintermuted Brand",
       "primaryAssetId": "wm-wintermuted-mark",
+      "iconSlots": {
+        "favicon": {
+          "title": "Favicon",
+          "assetId": "wm-wintermuted-mark",
+          "note": "Primary tab icon and bookmark mark"
+        },
+        "appIcon": {
+          "title": "Web App Icon",
+          "assetId": "wm-wintermuted-mark",
+          "note": "PWA and launcher icon source"
+        },
+        "logoMark": {
+          "title": "Logo Mark",
+          "assetId": "wm-spark",
+          "note": "Compact UI surfaces"
+        },
+        "wordmark": {
+          "title": "Wordmark",
+          "assetId": "wm-wintermuted-wrap-wide-horizontal",
+          "note": "Header and auth page branding"
+        },
+        "socialPreview": {
+          "title": "Social Preview",
+          "assetId": "wm-wintermuted-wrap-wide-balanced",
+          "note": "Open Graph/social share image basis"
+        }
+      },
       "agentSteer": {
         "notes": [
           "Use these source materials when refining Wintermuted brand assets.",
