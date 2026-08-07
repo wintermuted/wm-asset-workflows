@@ -204,7 +204,7 @@
 .asset-size-grid {
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
 }
 
 .project-steer-section {
@@ -337,6 +337,9 @@
   border-radius: var(--wm-radius-sm);
   padding: 0.75rem;
   background: var(--wm-color-surface-solid);
+  display: grid;
+  justify-items: center;
+  min-width: 0;
 }
 
 .size-preview-frame {
@@ -347,11 +350,15 @@
   border-radius: var(--wm-radius-xs);
   background: var(--wm-color-surface-strong);
   padding: 0.75rem;
+  width: min(100%, var(--frame-size, 120px));
+  aspect-ratio: 1 / 1;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .size-preview-frame img {
-  width: auto;
-  height: auto;
+  width: min(100%, var(--img-size, 80px));
+  height: min(100%, var(--img-size, 80px));
   object-fit: contain;
 }
 

@@ -511,16 +511,15 @@ function renderAssetDetail(assetId) {
     card.className = "size-preview-card";
 
     const displaySize = Math.min(size, 220);
+    const frameSize = Math.max(displaySize + 32, 120);
     const frame = document.createElement("div");
     frame.className = "size-preview-frame";
-    frame.style.width = `${Math.max(displaySize + 32, 120)}px`;
-    frame.style.height = `${Math.max(displaySize + 32, 120)}px`;
+    frame.style.setProperty("--frame-size", `${frameSize}px`);
+    frame.style.setProperty("--img-size", `${displaySize}px`);
 
     const img = document.createElement("img");
     img.src = `../${asset.source}`;
     img.alt = `${asset.label} at ${size}px`;
-    img.style.maxWidth = `${displaySize}px`;
-    img.style.maxHeight = `${displaySize}px`;
 
     const caption = document.createElement("p");
     caption.className = "size-preview-caption";
