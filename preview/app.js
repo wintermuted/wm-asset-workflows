@@ -104,6 +104,49 @@ let diagramData = [];
 let assetData = [];
 let assetById = new Map();
 
+function slugifyGroupName(value) {
+  return String(value)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "ungrouped";
+}
+
+function groupsForAsset(asset) {
+  const multiGroups = Array.isArray(asset.groups) ? asset.groups : [];
+  const singleGroup = asset.group ? [asset.group] : [];
+  const rawGroups = [...multiGroups, ...singleGroup];
+  const cleanedGroups = rawGroups
+    .map((group) => String(group).trim())
+    .filter((group) => group.length > 0);
+
+  if (!cleanedGroups.length) {
+    return ["Ungrouped"];
+  }
+
+  return Array.from(new Set(cleanedGroups));
+}
+
+function buildGroupedAssets(assets) {
+  const groupMap = new Map();
+
+  for (const asset of assets) {
+    for (const groupName of groupsForAsset(asset)) {
+      if (!groupMap.has(groupName)) {
+        groupMap.set(groupName, []);
+      }
+      groupMap.get(groupName).push(asset);
+    }
+  }
+
+  return Array.from(groupMap.entries())
+    .map(([groupName, groupAssets]) => [
+      groupName,
+      groupAssets.sort((a, b) => a.label.localeCompare(b.label))
+    ])
+    .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
 function uniqueSortedSizes(asset) {
   const variantSizes = (asset.variants ?? []).map((variant) => Number(variant.size)).filter((value) => Number.isFinite(value));
   const sizes = variantSizes.length ? variantSizes : [32, 64, 128, 256];
@@ -123,38 +166,76 @@ function setMainViewVisibility(route) {
 }
 
 function renderLogos(assets) {
-  const grid = document.getElementById("logo-grid");
-  if (!grid) return;
-  grid.innerHTML = "";
+  const index = document.getElementById("logo-group-index");
+  const groupsRoot = document.getElementById("logo-groups");
+  if (!index || !groupsRoot) return;
 
-  for (const asset of assets) {
-    const tile = document.createElement("article");
-    tile.className = "asset-tile";
+  index.innerHTML = "";
+  groupsRoot.innerHTML = "";
 
-    const frame = document.createElement("div");
-    frame.className = "logo-frame";
+  const groupedAssets = buildGroupedAssets(assets);
 
-    const img = document.createElement("img");
-    img.src = `../${asset.source}`;
-    img.alt = asset.label;
+  for (const [groupName, groupAssets] of groupedAssets) {
+    const groupId = `group-${slugifyGroupName(groupName)}`;
 
-    const title = document.createElement("h3");
-    title.textContent = asset.label;
+    const jumpLink = document.createElement("a");
+    jumpLink.className = "group-jump-link";
+    jumpLink.href = `#${groupId}`;
+    jumpLink.textContent = `${groupName} (${groupAssets.length})`;
+    index.appendChild(jumpLink);
 
-    const idText = document.createElement("p");
-    idText.textContent = asset.id;
+    const groupSection = document.createElement("section");
+    groupSection.className = "logo-group";
+    groupSection.id = groupId;
 
-    const detailLink = document.createElement("a");
-    detailLink.className = "asset-detail-link";
-    detailLink.href = `#asset/${encodeURIComponent(asset.id)}`;
-    detailLink.textContent = "View details";
+    const header = document.createElement("div");
+    header.className = "logo-group-header";
 
-    frame.appendChild(img);
-    tile.appendChild(title);
-    tile.appendChild(idText);
-    tile.appendChild(detailLink);
-    tile.prepend(frame);
-    grid.appendChild(tile);
+    const heading = document.createElement("h4");
+    heading.textContent = groupName;
+
+    const count = document.createElement("p");
+    count.textContent = `${groupAssets.length} item${groupAssets.length === 1 ? "" : "s"}`;
+
+    const grid = document.createElement("div");
+    grid.className = "asset-grid";
+
+    header.appendChild(heading);
+    header.appendChild(count);
+    groupSection.appendChild(header);
+
+    for (const asset of groupAssets) {
+      const tile = document.createElement("article");
+      tile.className = "asset-tile";
+
+      const frame = document.createElement("div");
+      frame.className = "logo-frame";
+
+      const img = document.createElement("img");
+      img.src = `../${asset.source}`;
+      img.alt = asset.label;
+
+      const title = document.createElement("h3");
+      title.textContent = asset.label;
+
+      const idText = document.createElement("p");
+      idText.textContent = asset.id;
+
+      const detailLink = document.createElement("a");
+      detailLink.className = "asset-detail-link";
+      detailLink.href = `#asset/${encodeURIComponent(asset.id)}`;
+      detailLink.textContent = "View details";
+
+      frame.appendChild(img);
+      tile.appendChild(title);
+      tile.appendChild(idText);
+      tile.appendChild(detailLink);
+      tile.prepend(frame);
+      grid.appendChild(tile);
+    }
+
+    groupSection.appendChild(grid);
+    groupsRoot.appendChild(groupSection);
   }
 }
 
@@ -177,7 +258,7 @@ function renderAssetDetail(assetId) {
   }
 
   title.textContent = asset.label;
-  meta.textContent = `${asset.id} - ${asset.source}`;
+  meta.textContent = `${asset.id} - ${asset.source} - Groups: ${groupsForAsset(asset).join(", ")}`;
   deepLink.textContent = window.location.href;
   deepLink.href = window.location.href;
 
