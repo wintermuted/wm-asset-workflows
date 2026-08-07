@@ -175,6 +175,20 @@
       ]
     },
     {
+      "id": "wm-wintermuted-mark-cube-outline-white-large",
+      "label": "Wintermuted Mark Cube Outline White Large",
+      "source": "assets/svg/wm-wintermuted-mark-cube-outline-white-large.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
       "id": "wm-wintermuted-wrap-wide-balanced",
       "label": "Wintermuted Wrap Wide Balanced",
       "source": "assets/svg/wm-wintermuted-wrap-wide-balanced.svg",
