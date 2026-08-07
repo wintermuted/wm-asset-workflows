@@ -17,6 +17,11 @@
   scroll-margin-top: 80px;
 }
 
+#project-detail,
+#asset-detail {
+  scroll-margin-top: 80px;
+}
+
 .is-hidden {
   display: none;
 }
@@ -101,6 +106,10 @@
   color: var(--wm-color-text-muted);
 }
 
+.project-page-link {
+  font-size: 0.8rem;
+}
+
 .asset-grid {
   display: grid;
   gap: 0.85rem;
@@ -160,6 +169,7 @@
 }
 
 .asset-detail-meta,
+.asset-project-row,
 .asset-deep-link-row {
   margin: 0 0 0.8rem;
   color: var(--wm-color-text-muted);

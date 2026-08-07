@@ -12,13 +12,14 @@ function getRouteFromHash() {
 
   if (token.startsWith("asset/")) {
     const encodedId = token.slice("asset/".length).trim();
-    let id = encodedId;
-    try {
-      id = decodeURIComponent(encodedId);
-    } catch (_error) {
-      id = encodedId;
-    }
+    const id = decodeHashSegment(encodedId);
     return { tab: "logos", page: "asset", assetId: id };
+  }
+
+  if (token.startsWith("project/")) {
+    const encodedProject = token.slice("project/".length).trim();
+    const projectName = decodeHashSegment(encodedProject);
+    return { tab: "logos", page: "project", projectName };
   }
 
   if (token === "diagrams") {
@@ -114,6 +115,20 @@ const GROUPING_MODES = [
 function logoTypeForAsset(asset) {
   const raw = String(asset.logoType ?? "").trim();
   return raw || "Uncategorized Type";
+}
+
+function decodeHashSegment(value) {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch (_error) {
+    decoded = value;
+  }
+  return decoded;
+}
+
+function projectRouteHref(projectName) {
+  return `#project/${encodeURIComponent(projectName)}`;
 }
 
 function projectForAsset(asset) {
@@ -241,13 +256,18 @@ function uniqueSortedSizes(asset) {
 function setMainViewVisibility(route) {
   const logosSection = document.getElementById("logos");
   const diagramsSection = document.getElementById("diagrams");
-  const detailSection = document.getElementById("asset-detail");
-  if (!logosSection || !diagramsSection || !detailSection) return;
+  const assetDetailSection = document.getElementById("asset-detail");
+  const projectDetailSection = document.getElementById("project-detail");
+  if (!logosSection || !diagramsSection || !assetDetailSection || !projectDetailSection) return;
 
   const onAssetPage = route.page === "asset";
-  logosSection.classList.toggle("is-hidden", onAssetPage);
-  diagramsSection.classList.toggle("is-hidden", onAssetPage);
-  detailSection.classList.toggle("is-hidden", !onAssetPage);
+  const onProjectPage = route.page === "project";
+  const onDetailPage = onAssetPage || onProjectPage;
+
+  logosSection.classList.toggle("is-hidden", onDetailPage);
+  diagramsSection.classList.toggle("is-hidden", onDetailPage);
+  assetDetailSection.classList.toggle("is-hidden", !onAssetPage);
+  projectDetailSection.classList.toggle("is-hidden", !onProjectPage);
 }
 
 function renderLogos(assets) {
@@ -280,6 +300,14 @@ function renderLogos(assets) {
 
     const heading = document.createElement("h4");
     heading.textContent = groupName;
+
+    if (activeGroupingMode === "project") {
+      const projectLink = document.createElement("a");
+      projectLink.className = "project-page-link";
+      projectLink.href = projectRouteHref(groupName);
+      projectLink.textContent = "Open project page";
+      header.appendChild(projectLink);
+    }
 
     const count = document.createElement("p");
     count.textContent = `${groupAssets.length} item${groupAssets.length === 1 ? "" : "s"}`;
@@ -330,8 +358,10 @@ function renderAssetDetail(assetId) {
   const title = document.getElementById("asset-detail-title");
   const meta = document.getElementById("asset-detail-meta");
   const deepLink = document.getElementById("asset-deep-link");
+  const projectRow = document.getElementById("asset-project-row");
+  const projectLink = document.getElementById("asset-project-link");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectRow || !projectLink || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   const asset = assetById.get(assetId);
@@ -341,13 +371,18 @@ function renderAssetDetail(assetId) {
     meta.textContent = `No logo or glyph exists for id: ${assetId}`;
     deepLink.textContent = window.location.href;
     deepLink.href = window.location.href;
+    projectRow.classList.add("is-hidden");
     return;
   }
 
+  const projectName = projectForAsset(asset);
   title.textContent = asset.label;
   meta.textContent = `${asset.id} - ${asset.source} - Project: ${projectForAsset(asset)} - Type: ${logoTypeForAsset(asset)} - Custom Groups: ${groupsForAsset(asset).join(", ")}`;
   deepLink.textContent = window.location.href;
   deepLink.href = window.location.href;
+  projectLink.textContent = projectName;
+  projectLink.href = projectRouteHref(projectName);
+  projectRow.classList.remove("is-hidden");
 
   for (const size of uniqueSortedSizes(asset)) {
     const card = document.createElement("article");
@@ -375,11 +410,73 @@ function renderAssetDetail(assetId) {
   }
 }
 
+function renderProjectDetail(projectName) {
+  const title = document.getElementById("project-detail-title");
+  const meta = document.getElementById("project-detail-meta");
+  const deepLink = document.getElementById("project-deep-link");
+  const grid = document.getElementById("project-asset-grid");
+  if (!title || !meta || !deepLink || !grid) return;
+
+  grid.innerHTML = "";
+  const targetProject = String(projectName || "").trim();
+  const projectAssets = assetData
+    .filter((asset) => projectForAsset(asset) === targetProject)
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  if (!targetProject || !projectAssets.length) {
+    title.textContent = "Project not found";
+    meta.textContent = `No assets are registered for project: ${projectName}`;
+    deepLink.textContent = window.location.href;
+    deepLink.href = window.location.href;
+    return;
+  }
+
+  title.textContent = targetProject;
+  meta.textContent = `${projectAssets.length} asset${projectAssets.length === 1 ? "" : "s"}`;
+  deepLink.textContent = window.location.href;
+  deepLink.href = window.location.href;
+
+  for (const asset of projectAssets) {
+    const tile = document.createElement("article");
+    tile.className = "asset-tile";
+
+    const frame = document.createElement("div");
+    frame.className = "logo-frame";
+
+    const img = document.createElement("img");
+    img.src = `../${asset.source}`;
+    img.alt = asset.label;
+
+    const assetTitle = document.createElement("h3");
+    assetTitle.textContent = asset.label;
+
+    const idText = document.createElement("p");
+    idText.textContent = asset.id;
+
+    const detailsLink = document.createElement("a");
+    detailsLink.className = "asset-detail-link";
+    detailsLink.href = `#asset/${encodeURIComponent(asset.id)}`;
+    detailsLink.textContent = "View asset details";
+
+    frame.appendChild(img);
+    tile.appendChild(frame);
+    tile.appendChild(assetTitle);
+    tile.appendChild(idText);
+    tile.appendChild(detailsLink);
+    grid.appendChild(tile);
+  }
+}
+
 function renderCurrentRoute() {
   const route = getRouteFromHash();
   setMainViewVisibility(route);
   if (route.page === "asset") {
     renderAssetDetail(route.assetId);
+    return;
+  }
+
+  if (route.page === "project") {
+    renderProjectDetail(route.projectName);
   }
 }
 
