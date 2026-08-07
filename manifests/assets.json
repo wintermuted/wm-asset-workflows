@@ -105,6 +105,34 @@
       ]
     },
     {
+      "id": "wm-wintermuted-mark-no-outline-no-cube",
+      "label": "Wintermuted Mark No Outline No Cube",
+      "source": "assets/svg/wm-wintermuted-mark-no-outline-no-cube.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-cube-stroked",
+      "label": "Wintermuted Mark Cube Stroked",
+      "source": "assets/svg/wm-wintermuted-mark-cube-stroked.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Combination Mark",
+      "groups": ["Wintermuted", "Wordmarks", "Explorations"],
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
       "id": "wm-wintermuted-wrap-wide-balanced",
       "label": "Wintermuted Wrap Wide Balanced",
       "source": "assets/svg/wm-wintermuted-wrap-wide-balanced.svg",
