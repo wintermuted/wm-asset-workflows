@@ -103,6 +103,23 @@ function wireTopNav() {
 let diagramData = [];
 let assetData = [];
 let assetById = new Map();
+let activeGroupingMode = "project";
+
+const GROUPING_MODES = [
+  { id: "project", label: "Project" },
+  { id: "type", label: "Type" },
+  { id: "custom", label: "Custom" }
+];
+
+function logoTypeForAsset(asset) {
+  const raw = String(asset.logoType ?? "").trim();
+  return raw || "Uncategorized Type";
+}
+
+function projectForAsset(asset) {
+  const raw = String(asset.project ?? "").trim();
+  return raw || "Unassigned Project";
+}
 
 function slugifyGroupName(value) {
   return String(value)
@@ -128,6 +145,36 @@ function groupsForAsset(asset) {
 }
 
 function buildGroupedAssets(assets) {
+  if (activeGroupingMode === "project") {
+    const byProject = new Map();
+    for (const asset of assets) {
+      const project = projectForAsset(asset);
+      if (!byProject.has(project)) {
+        byProject.set(project, []);
+      }
+      byProject.get(project).push(asset);
+    }
+
+    return Array.from(byProject.entries())
+      .map(([project, grouped]) => [project, grouped.sort((a, b) => a.label.localeCompare(b.label))])
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }
+
+  if (activeGroupingMode === "type") {
+    const byType = new Map();
+    for (const asset of assets) {
+      const type = logoTypeForAsset(asset);
+      if (!byType.has(type)) {
+        byType.set(type, []);
+      }
+      byType.get(type).push(asset);
+    }
+
+    return Array.from(byType.entries())
+      .map(([type, grouped]) => [type, grouped.sort((a, b) => a.label.localeCompare(b.label))])
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }
+
   const groupMap = new Map();
 
   for (const asset of assets) {
@@ -145,6 +192,44 @@ function buildGroupedAssets(assets) {
       groupAssets.sort((a, b) => a.label.localeCompare(b.label))
     ])
     .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function syncGroupingControlState() {
+  const controls = Array.from(document.querySelectorAll("[data-grouping-mode]"));
+  controls.forEach((button) => {
+    const mode = button.getAttribute("data-grouping-mode");
+    const isActive = mode === activeGroupingMode;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+function groupingLabelForCurrentMode() {
+  const mode = GROUPING_MODES.find((item) => item.id === activeGroupingMode);
+  return mode ? mode.label : "Project";
+}
+
+function wireGroupingControls() {
+  const controls = Array.from(document.querySelectorAll("[data-grouping-mode]"));
+  if (!controls.length) return;
+
+  const savedMode = localStorage.getItem("wm-assets-grouping-mode");
+  if (savedMode && GROUPING_MODES.some((mode) => mode.id === savedMode)) {
+    activeGroupingMode = savedMode;
+  }
+
+  controls.forEach((button) => {
+    button.addEventListener("click", () => {
+      const mode = button.getAttribute("data-grouping-mode");
+      if (!mode || mode === activeGroupingMode) return;
+      activeGroupingMode = mode;
+      localStorage.setItem("wm-assets-grouping-mode", mode);
+      syncGroupingControlState();
+      renderLogos(assetData);
+    });
+  });
+
+  syncGroupingControlState();
 }
 
 function uniqueSortedSizes(asset) {
@@ -168,15 +253,17 @@ function setMainViewVisibility(route) {
 function renderLogos(assets) {
   const index = document.getElementById("logo-group-index");
   const groupsRoot = document.getElementById("logo-groups");
-  if (!index || !groupsRoot) return;
+  const label = document.getElementById("grouping-label");
+  if (!index || !groupsRoot || !label) return;
 
   index.innerHTML = "";
   groupsRoot.innerHTML = "";
+  label.textContent = groupingLabelForCurrentMode();
 
   const groupedAssets = buildGroupedAssets(assets);
 
   for (const [groupName, groupAssets] of groupedAssets) {
-    const groupId = `group-${slugifyGroupName(groupName)}`;
+    const groupId = `group-${activeGroupingMode}-${slugifyGroupName(groupName)}`;
 
     const jumpLink = document.createElement("a");
     jumpLink.className = "group-jump-link";
@@ -258,7 +345,7 @@ function renderAssetDetail(assetId) {
   }
 
   title.textContent = asset.label;
-  meta.textContent = `${asset.id} - ${asset.source} - Groups: ${groupsForAsset(asset).join(", ")}`;
+  meta.textContent = `${asset.id} - ${asset.source} - Project: ${projectForAsset(asset)} - Type: ${logoTypeForAsset(asset)} - Custom Groups: ${groupsForAsset(asset).join(", ")}`;
   deepLink.textContent = window.location.href;
   deepLink.href = window.location.href;
 
@@ -336,6 +423,7 @@ async function init() {
   diagramData = specs.diagrams ?? [];
   assetData = assetManifest.assets ?? [];
   assetById = new Map(assetData.map((asset) => [asset.id, asset]));
+  wireGroupingControls();
   renderLogos(assetData);
   await renderDiagrams();
 

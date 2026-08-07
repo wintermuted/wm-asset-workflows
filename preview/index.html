@@ -48,6 +48,13 @@
             <h3>Logo and Glyph Sources</h3>
           </div>
           <div class="card-body">
+            <div class="grouping-toolbar" role="group" aria-label="Asset grouping mode">
+              <span class="grouping-toolbar-label">Group by</span>
+              <button type="button" class="grouping-toggle" data-grouping-mode="project">Project</button>
+              <button type="button" class="grouping-toggle" data-grouping-mode="type">Type</button>
+              <button type="button" class="grouping-toggle" data-grouping-mode="custom">Custom</button>
+            </div>
+            <p class="group-jump-caption">Jump to <span id="grouping-label">Project</span>:</p>
             <nav id="logo-group-index" class="group-jump-index" aria-label="Asset groups"></nav>
             <div id="logo-groups" class="logo-groups"></div>
           </div>
