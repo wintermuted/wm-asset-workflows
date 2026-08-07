@@ -334,14 +334,14 @@ function renderLogos(assets) {
     header.className = "logo-group-header";
 
     const heading = document.createElement("h4");
-    heading.textContent = groupName;
-
     if (activeGroupingMode === "project") {
-      const projectLink = document.createElement("a");
-      projectLink.className = "project-page-link";
-      projectLink.href = projectRouteHref(groupName);
-      projectLink.textContent = "Open project page";
-      header.appendChild(projectLink);
+      const titleLink = document.createElement("a");
+      titleLink.className = "project-title-link";
+      titleLink.href = projectRouteHref(groupName);
+      titleLink.textContent = groupName;
+      heading.appendChild(titleLink);
+    } else {
+      heading.textContent = groupName;
     }
 
     const count = document.createElement("p");
@@ -381,7 +381,16 @@ function renderLogos(assets) {
       detailLink.href = `#asset/${encodeURIComponent(asset.id)}`;
       detailLink.textContent = "View details";
 
-      frame.appendChild(img);
+      if (activeGroupingMode === "project") {
+        const iconLink = document.createElement("a");
+        iconLink.className = "project-icon-link";
+        iconLink.href = projectRouteHref(groupName);
+        iconLink.setAttribute("aria-label", `Open project page for ${groupName}`);
+        iconLink.appendChild(img);
+        frame.appendChild(iconLink);
+      } else {
+        frame.appendChild(img);
+      }
       tile.appendChild(title);
       tile.appendChild(idText);
       tile.appendChild(detailLink);

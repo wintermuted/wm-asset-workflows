@@ -106,8 +106,20 @@
   color: var(--wm-color-text-muted);
 }
 
-.project-page-link {
+.project-title-link {
   font-size: 0.8rem;
+}
+
+.project-icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-icon-link img {
+  max-width: 100%;
+  max-height: 80px;
+  object-fit: contain;
 }
 
 .asset-grid {
