@@ -6,6 +6,28 @@ async function loadJson(path) {
   return response.json();
 }
 
+function getRouteFromHash() {
+  const hash = window.location.hash || "#logos";
+  const token = hash.replace(/^#/, "");
+
+  if (token.startsWith("asset/")) {
+    const encodedId = token.slice("asset/".length).trim();
+    let id = encodedId;
+    try {
+      id = decodeURIComponent(encodedId);
+    } catch (_error) {
+      id = encodedId;
+    }
+    return { tab: "logos", page: "asset", assetId: id };
+  }
+
+  if (token === "diagrams") {
+    return { tab: "diagrams", page: "collection" };
+  }
+
+  return { tab: "logos", page: "collection" };
+}
+
 function applyThemeFromQuery() {
   const params = new URLSearchParams(window.location.search);
   const forcedTheme = params.get("theme");
@@ -57,10 +79,10 @@ function wireTopNav() {
   if (!tabs.length) return;
 
   const setActive = () => {
-    const hash = (window.location.hash || "#logos").replace("#", "");
+    const route = getRouteFromHash();
 
     tabs.forEach((tab) => {
-      const isActive = tab.getAttribute("data-preview-tab") === hash;
+      const isActive = tab.getAttribute("data-preview-tab") === route.tab;
       tab.classList.toggle("is-active", isActive);
       if (isActive) {
         tab.setAttribute("aria-current", "page");
@@ -79,6 +101,26 @@ function wireTopNav() {
 }
 
 let diagramData = [];
+let assetData = [];
+let assetById = new Map();
+
+function uniqueSortedSizes(asset) {
+  const variantSizes = (asset.variants ?? []).map((variant) => Number(variant.size)).filter((value) => Number.isFinite(value));
+  const sizes = variantSizes.length ? variantSizes : [32, 64, 128, 256];
+  return Array.from(new Set(sizes)).sort((a, b) => a - b);
+}
+
+function setMainViewVisibility(route) {
+  const logosSection = document.getElementById("logos");
+  const diagramsSection = document.getElementById("diagrams");
+  const detailSection = document.getElementById("asset-detail");
+  if (!logosSection || !diagramsSection || !detailSection) return;
+
+  const onAssetPage = route.page === "asset";
+  logosSection.classList.toggle("is-hidden", onAssetPage);
+  diagramsSection.classList.toggle("is-hidden", onAssetPage);
+  detailSection.classList.toggle("is-hidden", !onAssetPage);
+}
 
 function renderLogos(assets) {
   const grid = document.getElementById("logo-grid");
@@ -96,10 +138,80 @@ function renderLogos(assets) {
     img.src = `../${asset.source}`;
     img.alt = asset.label;
 
+    const title = document.createElement("h3");
+    title.textContent = asset.label;
+
+    const idText = document.createElement("p");
+    idText.textContent = asset.id;
+
+    const detailLink = document.createElement("a");
+    detailLink.className = "asset-detail-link";
+    detailLink.href = `#asset/${encodeURIComponent(asset.id)}`;
+    detailLink.textContent = "View details";
+
     frame.appendChild(img);
-    tile.innerHTML = `<h3>${asset.label}</h3><p>${asset.id}</p>`;
+    tile.appendChild(title);
+    tile.appendChild(idText);
+    tile.appendChild(detailLink);
     tile.prepend(frame);
     grid.appendChild(tile);
+  }
+}
+
+function renderAssetDetail(assetId) {
+  const title = document.getElementById("asset-detail-title");
+  const meta = document.getElementById("asset-detail-meta");
+  const deepLink = document.getElementById("asset-deep-link");
+  const sizeGrid = document.getElementById("asset-size-grid");
+  if (!title || !meta || !deepLink || !sizeGrid) return;
+
+  sizeGrid.innerHTML = "";
+  const asset = assetById.get(assetId);
+
+  if (!asset) {
+    title.textContent = "Asset not found";
+    meta.textContent = `No logo or glyph exists for id: ${assetId}`;
+    deepLink.textContent = window.location.href;
+    deepLink.href = window.location.href;
+    return;
+  }
+
+  title.textContent = asset.label;
+  meta.textContent = `${asset.id} - ${asset.source}`;
+  deepLink.textContent = window.location.href;
+  deepLink.href = window.location.href;
+
+  for (const size of uniqueSortedSizes(asset)) {
+    const card = document.createElement("article");
+    card.className = "size-preview-card";
+
+    const frame = document.createElement("div");
+    frame.className = "size-preview-frame";
+    frame.style.width = `${Math.max(size + 32, 120)}px`;
+    frame.style.height = `${Math.max(size + 32, 120)}px`;
+
+    const img = document.createElement("img");
+    img.src = `../${asset.source}`;
+    img.alt = `${asset.label} at ${size}px`;
+    img.style.maxWidth = `${size}px`;
+    img.style.maxHeight = `${size}px`;
+
+    const caption = document.createElement("p");
+    caption.className = "size-preview-caption";
+    caption.textContent = `${size}px`;
+
+    frame.appendChild(img);
+    card.appendChild(frame);
+    card.appendChild(caption);
+    sizeGrid.appendChild(card);
+  }
+}
+
+function renderCurrentRoute() {
+  const route = getRouteFromHash();
+  setMainViewVisibility(route);
+  if (route.page === "asset") {
+    renderAssetDetail(route.assetId);
   }
 }
 
@@ -141,8 +253,13 @@ async function init() {
   ]);
 
   diagramData = specs.diagrams ?? [];
-  renderLogos(assetManifest.assets ?? []);
+  assetData = assetManifest.assets ?? [];
+  assetById = new Map(assetData.map((asset) => [asset.id, asset]));
+  renderLogos(assetData);
   await renderDiagrams();
+
+  renderCurrentRoute();
+  window.addEventListener("hashchange", renderCurrentRoute);
 }
 
 init().catch((error) => {

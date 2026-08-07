@@ -17,6 +17,10 @@
   scroll-margin-top: 80px;
 }
 
+.is-hidden {
+  display: none;
+}
+
 .asset-grid {
   display: grid;
   gap: 0.85rem;
@@ -42,6 +46,11 @@
   color: var(--wm-color-text-muted);
 }
 
+.asset-detail-link {
+  display: inline-flex;
+  margin-top: 0.5rem;
+}
+
 .logo-frame {
   display: flex;
   align-items: center;
@@ -57,6 +66,59 @@
   max-width: 100%;
   max-height: 80px;
   object-fit: contain;
+}
+
+.asset-detail-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.asset-back-link {
+  width: fit-content;
+  font-size: 0.85rem;
+}
+
+.asset-detail-meta,
+.asset-deep-link-row {
+  margin: 0 0 0.8rem;
+  color: var(--wm-color-text-muted);
+}
+
+.asset-size-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.size-preview-card {
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.75rem;
+  background: var(--wm-color-surface-solid);
+}
+
+.size-preview-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  border-radius: var(--wm-radius-xs);
+  background: var(--wm-color-surface-strong);
+  padding: 0.75rem;
+}
+
+.size-preview-frame img {
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.size-preview-caption {
+  margin: 0.55rem 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--wm-color-text-muted);
 }
 
 .mermaid {
