@@ -181,6 +181,68 @@
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
+.project-steer-section {
+  margin: 0 0 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface-solid);
+}
+
+.project-steer-section h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.project-steer-empty {
+  margin: 0;
+  color: var(--wm-color-text-muted);
+  font-size: 0.82rem;
+}
+
+.project-steer-notes {
+  margin: 0 0 0.75rem 1rem;
+  padding: 0;
+}
+
+.project-steer-notes li {
+  margin: 0 0 0.35rem;
+  color: var(--wm-color-text-muted);
+  font-size: 0.84rem;
+}
+
+.project-steer-sources {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.source-material-card {
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface-strong);
+  padding: 0.65rem;
+}
+
+.source-material-card h5 {
+  margin: 0 0 0.45rem;
+  font-size: 0.84rem;
+}
+
+.source-material-card p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--wm-color-text-muted);
+}
+
+.source-material-image {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: var(--wm-radius-xs);
+  background: var(--wm-color-surface-solid);
+}
+
 .size-preview-card {
   border: 1px solid var(--wm-color-border);
   border-radius: var(--wm-radius-sm);

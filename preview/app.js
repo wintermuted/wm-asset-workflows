@@ -104,6 +104,7 @@ function wireTopNav() {
 let diagramData = [];
 let assetData = [];
 let assetById = new Map();
+let projectSteerByName = new Map();
 let activeGroupingMode = "project";
 
 const GROUPING_MODES = [
@@ -129,6 +130,24 @@ function decodeHashSegment(value) {
 
 function projectRouteHref(projectName) {
   return `#project/${encodeURIComponent(projectName)}`;
+}
+
+function resolveAssetPath(value) {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (String(value).startsWith("/")) return value;
+  return `../${value}`;
+}
+
+function normalizeProjectSteer(projectName) {
+  const fromManifest = projectSteerByName.get(projectName);
+  if (!fromManifest) {
+    return { notes: [], sources: [] };
+  }
+
+  const notes = Array.isArray(fromManifest.notes) ? fromManifest.notes.map((item) => String(item).trim()).filter(Boolean) : [];
+  const sources = Array.isArray(fromManifest.sources) ? fromManifest.sources : [];
+  return { notes, sources };
 }
 
 function projectForAsset(asset) {
@@ -415,9 +434,14 @@ function renderProjectDetail(projectName) {
   const meta = document.getElementById("project-detail-meta");
   const deepLink = document.getElementById("project-deep-link");
   const grid = document.getElementById("project-asset-grid");
-  if (!title || !meta || !deepLink || !grid) return;
+  const notesList = document.getElementById("project-steer-notes");
+  const sourcesGrid = document.getElementById("project-steer-sources");
+  const emptyState = document.getElementById("project-steer-empty");
+  if (!title || !meta || !deepLink || !grid || !notesList || !sourcesGrid || !emptyState) return;
 
   grid.innerHTML = "";
+  notesList.innerHTML = "";
+  sourcesGrid.innerHTML = "";
   const targetProject = String(projectName || "").trim();
   const projectAssets = assetData
     .filter((asset) => projectForAsset(asset) === targetProject)
@@ -428,6 +452,7 @@ function renderProjectDetail(projectName) {
     meta.textContent = `No assets are registered for project: ${projectName}`;
     deepLink.textContent = window.location.href;
     deepLink.href = window.location.href;
+    emptyState.classList.remove("is-hidden");
     return;
   }
 
@@ -435,6 +460,53 @@ function renderProjectDetail(projectName) {
   meta.textContent = `${projectAssets.length} asset${projectAssets.length === 1 ? "" : "s"}`;
   deepLink.textContent = window.location.href;
   deepLink.href = window.location.href;
+
+  const steer = normalizeProjectSteer(targetProject);
+  const hasSteer = steer.notes.length > 0 || steer.sources.length > 0;
+  emptyState.classList.toggle("is-hidden", hasSteer);
+
+  for (const note of steer.notes) {
+    const item = document.createElement("li");
+    item.textContent = note;
+    notesList.appendChild(item);
+  }
+
+  for (const source of steer.sources) {
+    const card = document.createElement("article");
+    card.className = "source-material-card";
+
+    const titleEl = document.createElement("h5");
+    titleEl.textContent = String(source.title || "Source Material");
+    card.appendChild(titleEl);
+
+    const kind = String(source.kind || "text").toLowerCase();
+
+    if (kind === "image") {
+      const img = document.createElement("img");
+      img.className = "source-material-image";
+      img.src = resolveAssetPath(source.src || source.url || "");
+      img.alt = String(source.alt || source.title || "Source image");
+      card.appendChild(img);
+    } else if (kind === "url") {
+      const link = document.createElement("a");
+      link.href = String(source.url || "");
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = String(source.url || "Open URL");
+      card.appendChild(link);
+    } else if (kind === "file") {
+      const link = document.createElement("a");
+      link.href = resolveAssetPath(source.path || source.url || "");
+      link.textContent = String(source.path || source.url || "Open file");
+      card.appendChild(link);
+    } else {
+      const body = document.createElement("p");
+      body.textContent = String(source.text || "");
+      card.appendChild(body);
+    }
+
+    sourcesGrid.appendChild(card);
+  }
 
   for (const asset of projectAssets) {
     const tile = document.createElement("article");
@@ -520,6 +592,12 @@ async function init() {
   diagramData = specs.diagrams ?? [];
   assetData = assetManifest.assets ?? [];
   assetById = new Map(assetData.map((asset) => [asset.id, asset]));
+  const projectSteer = Array.isArray(assetManifest.projects) ? assetManifest.projects : [];
+  projectSteerByName = new Map(
+    projectSteer
+      .filter((project) => project && project.name)
+      .map((project) => [String(project.name).trim(), project.agentSteer || {}])
+  );
   wireGroupingControls();
   renderLogos(assetData);
   await renderDiagrams();

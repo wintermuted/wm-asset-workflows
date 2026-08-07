@@ -1,4 +1,38 @@
 {
+  "projects": [
+    {
+      "name": "Wintermuted Brand",
+      "agentSteer": {
+        "notes": [
+          "Use these source materials when refining Wintermuted brand assets.",
+          "Keep generated variants visually consistent with the supplied references."
+        ],
+        "sources": [
+          {
+            "kind": "text",
+            "title": "Brand Direction",
+            "text": "Prioritize clarity at small sizes and preserve recognizable silhouette across variants."
+          },
+          {
+            "kind": "image",
+            "title": "Reference Mark",
+            "src": "assets/svg/wm-wintermuted-mark.svg",
+            "alt": "Wintermuted mark reference"
+          },
+          {
+            "kind": "url",
+            "title": "Repository",
+            "url": "https://github.com/wintermuted/wm-asset-workflows"
+          },
+          {
+            "kind": "file",
+            "title": "Authoring Guide",
+            "path": "docs/prompt-driven-authoring.md"
+          }
+        ]
+      }
+    }
+  ],
   "assets": [
     {
       "id": "wm-spark",
