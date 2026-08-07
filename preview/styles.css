@@ -12,6 +12,20 @@
   gap: 1rem;
 }
 
+.preview-brand-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.preview-brand-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 #logos,
 #diagrams {
   scroll-margin-top: 80px;
