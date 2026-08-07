@@ -133,6 +133,20 @@
       ]
     },
     {
+      "id": "wm-wintermuted-mark-no-outline-large-cube-extracted-blocks",
+      "label": "Wintermuted Mark No Outline Large Cube Extracted Blocks",
+      "source": "assets/svg/wm-wintermuted-mark-no-outline-large-cube-extracted-blocks.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "variants": [
+        { "size": 64, "theme": "light" },
+        { "size": 64, "theme": "dark" },
+        { "size": 128, "theme": "light" },
+        { "size": 128, "theme": "dark" }
+      ]
+    },
+    {
       "id": "wm-wintermuted-mark-cube-stroked",
       "label": "Wintermuted Mark Cube Stroked",
       "source": "assets/svg/wm-wintermuted-mark-cube-stroked.svg",
