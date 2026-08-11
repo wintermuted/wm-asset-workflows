@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <rect width="128" height="128" rx="28" fill="#000000"/>
+
+  <!-- Top face (earth) -->
+  <path d="M64 18L104 40L64 62L24 40L64 18Z" fill="#8C5A34"/>
+
+  <!-- Side faces (compacted earth) -->
+  <path d="M24 40L64 62V106L24 84V40Z" fill="#744524"/>
+  <path d="M104 40L64 62V106L104 84V40Z" fill="#5E351B"/>
+
+  <!-- Top turf ring to imply a game-style block surface -->
+  <path d="M64 22L98 41L64 60L30 41L64 22Z" fill="#3D7A39" opacity="0.9"/>
+
+  <!-- Water feature on top -->
+  <path d="M64 28L86 40L64 52L42 40L64 28Z" fill="#2DA6FF"/>
+  <path d="M64 31L80 40L64 49L48 40L64 31Z" fill="#66D4FF" opacity="0.85"/>
+
+  <!-- Soil variation accents -->
+  <path d="M39 53L45 56L39 60L33 57L39 53Z" fill="#8F603A"/>
+  <path d="M52 71L58 74L52 78L46 75L52 71Z" fill="#8B5933"/>
+  <path d="M41 80L48 84L41 88L34 84L41 80Z" fill="#6A3F22"/>
+  <path d="M88 53L94 56L88 60L82 57L88 53Z" fill="#734424"/>
+  <path d="M78 70L84 73L78 77L72 74L78 70Z" fill="#7D4B2A"/>
+  <path d="M90 79L97 83L90 87L83 83L90 79Z" fill="#4F2D17"/>
+
+  <!-- Outline for silhouette clarity at small sizes -->
+  <path d="M64 18L104 40L64 62L24 40L64 18Z" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M24 40L64 62V106L24 84V40Z" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M104 40L64 62V106L104 84V40Z" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>

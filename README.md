@@ -1,6 +1,6 @@
-# wm-asset-workflows
+# Agentic Icon Builder
 
-Standalone workflow repo for SVG logos/glyphs, markdown-driven Mermaid diagrams, deterministic PNG generation, and browser screenshot capture.
+Agentic workflow app for building SVG logos and glyphs, authoring markdown-driven Mermaid diagrams, generating deterministic PNGs, and capturing browser screenshots.
 
 ## Goals
 

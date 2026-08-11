@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="rgbTop" x1="24" y1="40" x2="104" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF3B3B"/>
+      <stop offset="0.5" stop-color="#34D058"/>
+      <stop offset="1" stop-color="#2F6BFF"/>
+    </linearGradient>
+    <linearGradient id="rgbLeft" x1="24" y1="40" x2="64" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF3B3B"/>
+      <stop offset="0.5" stop-color="#FF8A00"/>
+      <stop offset="1" stop-color="#34D058"/>
+    </linearGradient>
+    <linearGradient id="rgbRight" x1="104" y1="40" x2="64" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34D058"/>
+      <stop offset="0.55" stop-color="#00B7FF"/>
+      <stop offset="1" stop-color="#2F6BFF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="128" height="128" rx="28" fill="#000000"/>
+
+  <!-- Top face now matches RGB side treatment -->
+  <path d="M64 18L104 40L64 62L24 40L64 18Z" fill="url(#rgbTop)"/>
+
+  <!-- RGB-filled side faces -->
+  <path d="M24 40L64 62V106L24 84V40Z" fill="url(#rgbLeft)"/>
+  <path d="M104 40L64 62V106L104 84V40Z" fill="url(#rgbRight)"/>
+
+  <!-- Subtle sparkle accents -->
+  <path d="M38 57L43 60L38 63L33 60L38 57Z" fill="#FFFFFF" opacity="0.24"/>
+  <path d="M89 58L94 61L89 64L84 61L89 58Z" fill="#FFFFFF" opacity="0.2"/>
+  <path d="M64 22L70 25L64 28L58 25L64 22Z" fill="#FFFFFF" opacity="0.18"/>
+
+  <!-- Outline for silhouette clarity at small sizes -->
+  <path d="M64 18L104 40L64 62L24 40L64 18Z" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M24 40L64 62V106L24 84V40Z" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M104 40L64 62V106L104 84V40Z" stroke="#FFFFFF" stroke-opacity="0.2" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>

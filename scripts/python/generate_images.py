@@ -65,7 +65,7 @@ def main():
     draw = ImageDraw.Draw(image)
 
     header_font = load_font(28)
-    draw.text((gutter, 20), "wm-asset-workflows generated sheet", fill="#E2E8F0", font=header_font)
+    draw.text((gutter, 20), "Agentic Icon Builder generated sheet", fill="#E2E8F0", font=header_font)
 
     for idx, asset in enumerate(assets):
         row = idx // cols

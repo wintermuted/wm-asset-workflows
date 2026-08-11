@@ -42,12 +42,6 @@
             "text": "Prioritize clarity at small sizes and preserve recognizable silhouette across variants."
           },
           {
-            "kind": "image",
-            "title": "Reference Mark",
-            "src": "assets/svg/wm-wintermuted-mark.svg",
-            "alt": "Wintermuted mark reference"
-          },
-          {
             "kind": "url",
             "title": "Repository",
             "url": "https://github.com/wintermuted/wm-asset-workflows"
@@ -59,273 +53,1155 @@
           }
         ]
       }
+    },
+    {
+      "name": "wm-assets-workflows",
+      "primaryAssetId": "",
+      "iconSlots": {
+        "favicon": {
+          "title": "Favicon",
+          "assetId": "",
+          "note": ""
+        },
+        "appIcon": {
+          "title": "Web App Icon",
+          "assetId": "",
+          "note": ""
+        },
+        "logoMark": {
+          "title": "Logo Mark",
+          "assetId": "",
+          "note": ""
+        },
+        "wordmark": {
+          "title": "Wordmark",
+          "assetId": "",
+          "note": ""
+        },
+        "socialPreview": {
+          "title": "Social Preview",
+          "assetId": "",
+          "note": ""
+        }
+      },
+      "agentSteer": {
+        "notes": [],
+        "sources": []
+      }
+    },
+    {
+      "name": "Solar Punk",
+      "primaryAssetId": "",
+      "iconSlots": {
+        "favicon": {
+          "title": "Favicon",
+          "assetId": "",
+          "note": ""
+        },
+        "appIcon": {
+          "title": "Web App Icon",
+          "assetId": "",
+          "note": ""
+        },
+        "logoMark": {
+          "title": "Logo Mark",
+          "assetId": "",
+          "note": ""
+        },
+        "wordmark": {
+          "title": "Wordmark",
+          "assetId": "",
+          "note": ""
+        },
+        "socialPreview": {
+          "title": "Social Preview",
+          "assetId": "",
+          "note": ""
+        }
+      },
+      "agentSteer": {
+        "notes": [],
+        "sources": [
+          {
+            "kind": "image",
+            "title": "image",
+            "src": "assets/svg/solar-punk/grounding/image.png",
+            "alt": "Solar Punk grounding reference",
+            "palette": [
+              {
+                "hex": "#257375",
+                "percentage": 12.11
+              },
+              {
+                "hex": "#B0AF8D",
+                "percentage": 11.98
+              },
+              {
+                "hex": "#1B2725",
+                "percentage": 11.81
+              },
+              {
+                "hex": "#2E4D50",
+                "percentage": 11.72
+              },
+              {
+                "hex": "#7B7C6D",
+                "percentage": 9.84
+              },
+              {
+                "hex": "#50997E",
+                "percentage": 9.54
+              },
+              {
+                "hex": "#537067",
+                "percentage": 8.94
+              },
+              {
+                "hex": "#9BDBBE",
+                "percentage": 8.62
+              },
+              {
+                "hex": "#63BC9D",
+                "percentage": 8.29
+              },
+              {
+                "hex": "#DAE7CE",
+                "percentage": 7.15
+              }
+            ]
+          },
+          {
+            "kind": "image",
+            "title": "image",
+            "src": "assets/svg/solar-punk/grounding/image.jpeg",
+            "alt": "Solar Punk grounding reference",
+            "palette": [
+              {
+                "hex": "#876A5A",
+                "percentage": 12.8
+              },
+              {
+                "hex": "#D5BB81",
+                "percentage": 12.4
+              },
+              {
+                "hex": "#95A97E",
+                "percentage": 11.2
+              },
+              {
+                "hex": "#F0F1EA",
+                "percentage": 10.98
+              },
+              {
+                "hex": "#523133",
+                "percentage": 10.29
+              },
+              {
+                "hex": "#E8D78F",
+                "percentage": 9.7
+              },
+              {
+                "hex": "#DDDFB7",
+                "percentage": 9.3
+              },
+              {
+                "hex": "#EFF0DA",
+                "percentage": 8.24
+              },
+              {
+                "hex": "#A3DDA8",
+                "percentage": 7.65
+              },
+              {
+                "hex": "#EAE3C5",
+                "percentage": 7.45
+              }
+            ]
+          },
+          {
+            "kind": "image",
+            "title": "image 2",
+            "src": "assets/svg/solar-punk/grounding/image-2.png",
+            "alt": "Solar Punk grounding reference",
+            "palette": [
+              {
+                "hex": "#9E7E69",
+                "percentage": 13.86
+              },
+              {
+                "hex": "#869E8C",
+                "percentage": 12.45
+              },
+              {
+                "hex": "#6E7C65",
+                "percentage": 11.58
+              },
+              {
+                "hex": "#3A3F3D",
+                "percentage": 11.35
+              },
+              {
+                "hex": "#BA9E8C",
+                "percentage": 11.15
+              },
+              {
+                "hex": "#6A6354",
+                "percentage": 10.28
+              },
+              {
+                "hex": "#CFB7A8",
+                "percentage": 9.14
+              },
+              {
+                "hex": "#ABB3A9",
+                "percentage": 7.67
+              },
+              {
+                "hex": "#F0E6DA",
+                "percentage": 6.47
+              },
+              {
+                "hex": "#CBCFC2",
+                "percentage": 6.04
+              }
+            ]
+          }
+        ],
+        "favoriteColors": [
+          "#7B7C6D",
+          "#DDDFB7",
+          "#95A97E",
+          "#63BC9D",
+          "#257375",
+          "#F0E6DA",
+          "#9E7E69"
+        ],
+        "customColors": [
+          "#257375"
+        ]
+      },
+      "slug": "solar-punk",
+      "documentation": "assets/svg/solar-punk/README.md",
+      "samplePrompts": [
+        "/create-svg-asset\n\nProject: Solar Punk\nDirectory: assets/svg/solar-punk/",
+        "/create-svg-asset\n\nCreate a minimal geometric mark using the uploaded steering source material.\nBase idea: combine a strong silhouette with one distinctive cutout or negative-space detail.\n\nProject: Solar Punk\nDirectory: assets/svg/solar-punk/",
+        "/create-svg-asset\n\nCreate an expressive symbol using the uploaded steering source material.\nBase idea: translate the project's core purpose into a modular emblem that remains recognizable at favicon size.\n\nProject: Solar Punk\nDirectory: assets/svg/solar-punk/"
+      ]
     }
   ],
   "assets": [
     {
       "id": "wm-spark",
       "label": "WM Spark",
-      "source": "assets/svg/wm-spark.svg",
+      "source": "assets/svg/wintermuted-brand/wm-spark.svg",
       "project": "Wintermuted Brand",
       "logoType": "Logomark",
-      "groups": ["Wintermuted", "Marks"],
+      "groups": [
+        "Wintermuted",
+        "Marks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "gol-mark",
       "label": "Conway's Game of Life",
-      "source": "assets/svg/gol-mark.svg",
+      "source": "assets/svg/game-of-life/gol-mark.svg",
       "project": "Conway's Game of Life",
       "logoType": "Logomark",
-      "groups": ["Game of Life", "Marks"],
+      "groups": [
+        "Game of Life",
+        "Marks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "test-project-mark",
+      "label": "Test Project Mark",
+      "source": "assets/svg/solar-punk/test-project-mark.svg",
+      "project": "Solar Punk",
+      "logoType": "Logomark",
+      "groups": [
+        "Test Project",
+        "Marks"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "solar-punk-mark",
+      "label": "Solar Punk Mark",
+      "source": "assets/svg/solar-punk/solar-punk-mark.svg",
+      "project": "Solar Punk",
+      "logoType": "Logomark",
+      "groups": [
+        "Solar Punk",
+        "Marks"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "solar-punk-emblem",
+      "label": "Solar Punk Emblem",
+      "source": "assets/svg/solar-punk/solar-punk-emblem.svg",
+      "project": "Solar Punk",
+      "logoType": "Logomark",
+      "groups": [
+        "Solar Punk",
+        "Marks"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark",
       "label": "Wintermuted Mark",
-      "source": "assets/svg/wm-wintermuted-mark.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark.svg",
       "project": "Wintermuted Brand",
       "logoType": "Combination Mark",
-      "groups": ["Wintermuted", "Wordmarks"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark-no-outline-no-cube",
       "label": "Wintermuted Mark No Outline No Cube",
-      "source": "assets/svg/wm-wintermuted-mark-no-outline-no-cube.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-no-outline-no-cube.svg",
       "project": "Wintermuted Brand",
       "logoType": "Logomark",
-      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark-no-outline-large-cube",
       "label": "Wintermuted Mark No Outline Large Cube",
-      "source": "assets/svg/wm-wintermuted-mark-no-outline-large-cube.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-no-outline-large-cube.svg",
       "project": "Wintermuted Brand",
       "logoType": "Logomark",
-      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark-no-outline-large-cube-extracted-blocks",
       "label": "Wintermuted Mark No Outline Large Cube Extracted Blocks",
-      "source": "assets/svg/wm-wintermuted-mark-no-outline-large-cube-extracted-blocks.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-no-outline-large-cube-extracted-blocks.svg",
       "project": "Wintermuted Brand",
       "logoType": "Logomark",
-      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark-cube-stroked",
       "label": "Wintermuted Mark Cube Stroked",
-      "source": "assets/svg/wm-wintermuted-mark-cube-stroked.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-cube-stroked.svg",
       "project": "Wintermuted Brand",
       "logoType": "Combination Mark",
-      "groups": ["Wintermuted", "Wordmarks", "Explorations"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks",
+        "Explorations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark-cube-outline-white",
       "label": "Wintermuted Mark Cube Outline White",
-      "source": "assets/svg/wm-wintermuted-mark-cube-outline-white.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-cube-outline-white.svg",
       "project": "Wintermuted Brand",
       "logoType": "Logomark",
-      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-mark-cube-outline-white-large",
       "label": "Wintermuted Mark Cube Outline White Large",
-      "source": "assets/svg/wm-wintermuted-mark-cube-outline-white-large.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-cube-outline-white-large.svg",
       "project": "Wintermuted Brand",
       "logoType": "Logomark",
-      "groups": ["Wintermuted", "Marks", "Explorations"],
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-earth-water-block",
+      "label": "Wintermuted Mark Earth Water Block",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-earth-water-block.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-earth-water-block-rgb-sides",
+      "label": "Wintermuted Mark Earth Water Block RGB Sides",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-earth-water-block-rgb-sides.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-earth-water-block-rgb-all-faces",
+      "label": "Wintermuted Mark Earth Water Block RGB All Faces",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-earth-water-block-rgb-all-faces.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-earth-water-block-rgb-flat-faces",
+      "label": "Wintermuted Mark Earth Water Block RGB Flat Faces",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-earth-water-block-rgb-flat-faces.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-muted-rgb-01",
+      "label": "Wintermuted Mark Muted RGB 01",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-muted-rgb-01.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-muted-rgb-02",
+      "label": "Wintermuted Mark Muted RGB 02",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-muted-rgb-02.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-muted-rgb-03",
+      "label": "Wintermuted Mark Muted RGB 03",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-muted-rgb-03.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-muted-rgb-04",
+      "label": "Wintermuted Mark Muted RGB 04",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-muted-rgb-04.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-wintermuted-mark-muted-rgb-05",
+      "label": "Wintermuted Mark Muted RGB 05",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-mark-muted-rgb-05.svg",
+      "project": "Wintermuted Brand",
+      "logoType": "Logomark",
+      "groups": [
+        "Wintermuted",
+        "Marks",
+        "Explorations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-wrap-wide-balanced",
       "label": "Wintermuted Wrap Wide Balanced",
-      "source": "assets/svg/wm-wintermuted-wrap-wide-balanced.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-wrap-wide-balanced.svg",
       "project": "Wintermuted Brand",
       "logoType": "Wordmark",
-      "groups": ["Wintermuted", "Wordmarks"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-wrap-wide-horizontal",
       "label": "Wintermuted Wrap Wide Horizontal",
-      "source": "assets/svg/wm-wintermuted-wrap-wide-horizontal.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-wrap-wide-horizontal.svg",
       "project": "Wintermuted Brand",
       "logoType": "Wordmark",
-      "groups": ["Wintermuted", "Wordmarks"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-wrap-wide-tall",
       "label": "Wintermuted Wrap Wide Tall",
-      "source": "assets/svg/wm-wintermuted-wrap-wide-tall.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-wrap-wide-tall.svg",
       "project": "Wintermuted Brand",
       "logoType": "Wordmark",
-      "groups": ["Wintermuted", "Wordmarks"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-wrap-wide-heavy",
       "label": "Wintermuted Wrap Wide Heavy",
-      "source": "assets/svg/wm-wintermuted-wrap-wide-heavy.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-wrap-wide-heavy.svg",
       "project": "Wintermuted Brand",
       "logoType": "Wordmark",
-      "groups": ["Wintermuted", "Wordmarks"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "wm-wintermuted-wrap-wide-max",
       "label": "Wintermuted Wrap Wide Max",
-      "source": "assets/svg/wm-wintermuted-wrap-wide-max.svg",
+      "source": "assets/svg/wintermuted-brand/wm-wintermuted-wrap-wide-max.svg",
       "project": "Wintermuted Brand",
       "logoType": "Wordmark",
-      "groups": ["Wintermuted", "Wordmarks"],
+      "groups": [
+        "Wintermuted",
+        "Wordmarks"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "sub-killer-savings-v1",
       "label": "Sub Killer Savings V1",
-      "source": "assets/svg/sub-killer-savings-v1.svg",
+      "source": "assets/svg/sub-killer-savings/sub-killer-savings-v1.svg",
       "project": "Sub Killer Savings",
       "logoType": "Logo",
-      "groups": ["Sub Killer Savings", "Concept Iterations"],
+      "groups": [
+        "Sub Killer Savings",
+        "Concept Iterations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "sub-killer-savings-v2",
       "label": "Sub Killer Savings V2",
-      "source": "assets/svg/sub-killer-savings-v2.svg",
+      "source": "assets/svg/sub-killer-savings/sub-killer-savings-v2.svg",
       "project": "Sub Killer Savings",
       "logoType": "Logo",
-      "groups": ["Sub Killer Savings", "Concept Iterations"],
+      "groups": [
+        "Sub Killer Savings",
+        "Concept Iterations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "sub-killer-savings-v3",
       "label": "Sub Killer Savings V3",
-      "source": "assets/svg/sub-killer-savings-v3.svg",
+      "source": "assets/svg/sub-killer-savings/sub-killer-savings-v3.svg",
       "project": "Sub Killer Savings",
       "logoType": "Logo",
-      "groups": ["Sub Killer Savings", "Concept Iterations"],
+      "groups": [
+        "Sub Killer Savings",
+        "Concept Iterations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "sub-killer-savings-v4",
       "label": "Sub Killer Savings V4",
-      "source": "assets/svg/sub-killer-savings-v4.svg",
+      "source": "assets/svg/sub-killer-savings/sub-killer-savings-v4.svg",
       "project": "Sub Killer Savings",
       "logoType": "Logo",
-      "groups": ["Sub Killer Savings", "Concept Iterations"],
+      "groups": [
+        "Sub Killer Savings",
+        "Concept Iterations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     },
     {
       "id": "sub-killer-savings-v5",
       "label": "Sub Killer Savings V5",
-      "source": "assets/svg/sub-killer-savings-v5.svg",
+      "source": "assets/svg/sub-killer-savings/sub-killer-savings-v5.svg",
       "project": "Sub Killer Savings",
       "logoType": "Logo",
-      "groups": ["Sub Killer Savings", "Concept Iterations"],
+      "groups": [
+        "Sub Killer Savings",
+        "Concept Iterations"
+      ],
       "variants": [
-        { "size": 64, "theme": "light" },
-        { "size": 64, "theme": "dark" },
-        { "size": 128, "theme": "light" },
-        { "size": 128, "theme": "dark" }
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
       ]
     }
   ]

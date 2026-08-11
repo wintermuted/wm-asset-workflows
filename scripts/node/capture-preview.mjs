@@ -12,6 +12,12 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function captureTheme(page, theme, outputPath) {
+  await page.goto(`http://localhost:${port}/preview/index.html?theme=${theme}`, { waitUntil: "domcontentloaded" });
+  await page.locator("#logo-groups .logo-group").first().waitFor({ state: "visible" });
+  await page.screenshot({ path: outputPath, fullPage: true });
+}
+
 async function run() {
   await mkdir(outDir, { recursive: true });
 
@@ -26,11 +32,8 @@ async function run() {
     const browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 1440, height: 1024 } });
 
-    await page.goto(`http://localhost:${port}/preview/index.html?theme=light`, { waitUntil: "networkidle" });
-    await page.screenshot({ path: join(outDir, "preview-light.png"), fullPage: true });
-
-    await page.goto(`http://localhost:${port}/preview/index.html?theme=dark`, { waitUntil: "networkidle" });
-    await page.screenshot({ path: join(outDir, "preview-dark.png"), fullPage: true });
+    await captureTheme(page, "light", join(outDir, "preview-light.png"));
+    await captureTheme(page, "dark", join(outDir, "preview-dark.png"));
 
     await browser.close();
     console.log("Wrote screenshots to outputs/screenshots/");
