@@ -29,6 +29,28 @@ outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
 - Python 3.10+
 - Playwright Chromium (one-time install)
 
+This repo depends on [`@wintermuted/ui-theme`](https://github.com/wintermuted/ui-theme)
+via a relative `file:` path, so it must be cloned **as a sibling directory named
+`wintermuted-ui-theme`** — note that this differs from the repository's own name:
+
+```bash
+git clone https://github.com/wintermuted/wm-asset-workflows.git
+git clone https://github.com/wintermuted/ui-theme.git wintermuted-ui-theme
+cd wm-asset-workflows
+```
+
+Your layout should look like this:
+
+```text
+parent/
+├── wm-asset-workflows/
+└── wintermuted-ui-theme/   # clone of wintermuted/ui-theme
+```
+
+If the sibling is missing or named differently, `npm install` still succeeds but
+imports fail at runtime with `MODULE_NOT_FOUND` for `@wintermuted/ui-theme`. CI
+handles this automatically by checking the repo out to the correct path.
+
 ```bash
 npm install
 pip install -r requirements.txt

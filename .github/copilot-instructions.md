@@ -13,6 +13,11 @@ Standalone repo for SVG-first logo/glyph authoring, markdown-driven diagrams, de
 
 ## Commands
 
+> **First-time setup:** `@wintermuted/ui-theme` is a `file:../wintermuted-ui-theme`
+> dependency. Clone [`wintermuted/ui-theme`](https://github.com/wintermuted/ui-theme)
+> as a sibling directory named `wintermuted-ui-theme` (not `ui-theme`) before running
+> `npm install`, or imports fail at runtime with `MODULE_NOT_FOUND`.
+
 ```bash
 npm install                    # Install Node deps (first time)
 pip install -r requirements.txt  # Install Python deps (first time)
