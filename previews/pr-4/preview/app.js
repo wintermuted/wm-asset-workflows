@@ -1,0 +1,2102 @@
+async function loadJson(path) {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`Failed to load ${path}: ${response.status}`);
+  }
+  return response.json();
+}
+
+function getRouteFromHash() {
+  const hash = window.location.hash || "#logos";
+  const token = hash.replace(/^#/, "");
+
+  if (token.startsWith("asset/")) {
+    const encodedId = token.slice("asset/".length).trim();
+    const id = decodeHashSegment(encodedId);
+    return { tab: "logos", page: "asset", assetId: id };
+  }
+
+  if (token.startsWith("source/")) {
+    const [encodedProject = "", encodedSource = ""] = token.slice("source/".length).split("/");
+    return {
+      tab: "logos",
+      page: "source",
+      projectName: decodeHashSegment(encodedProject),
+      sourcePath: decodeHashSegment(encodedSource)
+    };
+  }
+
+  if (token.startsWith("project/")) {
+    const encodedProject = token.slice("project/".length).trim();
+    const projectName = decodeHashSegment(encodedProject);
+    return { tab: "logos", page: "project", projectName };
+  }
+
+  if (token === "diagrams") {
+    return { tab: "diagrams", page: "collection" };
+  }
+
+  return { tab: "logos", page: "collection" };
+}
+
+function applyThemeFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const forcedTheme = params.get("theme");
+  if (forcedTheme === "dark" || forcedTheme === "light") {
+    document.documentElement.setAttribute("data-theme", forcedTheme);
+    return;
+  }
+
+  const savedTheme = localStorage.getItem("wm-assets-theme");
+  if (savedTheme) {
+    document.documentElement.setAttribute("data-theme", savedTheme);
+  }
+}
+
+function wireThemeToggle() {
+  const button = document.getElementById("theme-toggle");
+  const syncToggleIcon = () => {
+    const current = document.documentElement.getAttribute("data-theme") || "light";
+    const dark = current === "dark";
+    const iconName = dark ? "sun" : "moon";
+    const label = dark ? "Light" : "Dark";
+    button.innerHTML = `<i data-lucide="${iconName}" aria-hidden="true"></i><span>${label}</span>`;
+    button.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  syncToggleIcon();
+
+  button?.addEventListener("click", () => {
+    const current = document.documentElement.getAttribute("data-theme") || "light";
+    const next = current === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("wm-assets-theme", next);
+    syncToggleIcon();
+
+    if (typeof mermaid !== "undefined") {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "loose",
+        theme: next === "dark" ? "dark" : "default"
+      });
+      renderDiagrams();
+    }
+  });
+}
+
+function wireTopNav() {
+  const tabs = Array.from(document.querySelectorAll("[data-preview-tab]"));
+  if (!tabs.length) return;
+
+  const setActive = () => {
+    const route = getRouteFromHash();
+
+    tabs.forEach((tab) => {
+      const isActive = tab.getAttribute("data-preview-tab") === route.tab;
+      tab.classList.toggle("is-active", isActive);
+      if (isActive) {
+        tab.setAttribute("aria-current", "page");
+      } else {
+        tab.removeAttribute("aria-current");
+      }
+    });
+  };
+
+  if (!window.location.hash) {
+    window.location.hash = "#logos";
+  }
+
+  window.addEventListener("hashchange", setActive);
+  setActive();
+}
+
+let diagramData = [];
+let assetData = [];
+let assetById = new Map();
+let projectMetaByName = new Map();
+let activeGroupingMode = "project";
+let projectSamplePrompts = [];
+let activeProjectPromptIndex = 0;
+let toastTimeout;
+const assetSvgDataCache = new Map();
+const assetLayerEdits = new Map();
+const assetCustomColors = new Map();
+const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
+
+function normalizeSvgColor(value) {
+  const color = String(value || "").trim();
+  const hex = color.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)?.[1];
+  if (!hex) return "";
+  const expanded = hex.length <= 4
+    ? [...hex].map((character) => character.repeat(2)).join("")
+    : hex;
+  return `#${expanded.toUpperCase()}`;
+}
+
+function resolveSvgPaint(element, property, svg) {
+  let candidate = element;
+  while (candidate) {
+    const value = String(candidate.getAttribute(property) || candidate.style?.getPropertyValue(property) || "").trim();
+    if (value) return normalizeSvgColor(value) || value;
+    if (candidate === svg) break;
+    candidate = candidate.parentElement;
+  }
+  return property === "fill" ? "#000000" : "none";
+}
+
+function graphicElementPaints(element, svg) {
+  return ["fill", "stroke"]
+    .map((property) => [property, resolveSvgPaint(element, property, svg)])
+    .filter(([, value]) => value !== "none");
+}
+
+function describeGraphicElement(element, svg) {
+  const paints = graphicElementPaints(element, svg)
+    .map(([property, value]) => `${property} ${value}`);
+  return `${element.localName}${paints.length ? ` · ${paints.join(" · ")}` : ""}`;
+}
+
+function describeSvgEffects(documentRoot) {
+  const effects = [
+    ["gradient", documentRoot.querySelectorAll("linearGradient, radialGradient").length],
+    ["clip path", documentRoot.querySelectorAll("clipPath").length],
+    ["mask", documentRoot.querySelectorAll("mask").length],
+    ["filter", documentRoot.querySelectorAll("filter").length]
+  ];
+  const used = effects.filter(([, count]) => count > 0);
+  return used.length
+    ? used.map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`).join(", ")
+    : "None";
+}
+
+function loadAssetSvgData(source) {
+  if (!assetSvgDataCache.has(source)) {
+    assetSvgDataCache.set(source, (async () => {
+      const response = await fetch(`../${source}`);
+      if (!response.ok) throw new Error(`Failed to load ${source}`);
+      const sourceText = await response.text();
+      const documentRoot = new DOMParser().parseFromString(sourceText, "image/svg+xml");
+      if (documentRoot.querySelector("parsererror")) throw new Error(`Failed to parse ${source}`);
+
+      const colors = [];
+      for (const element of documentRoot.querySelectorAll("*")) {
+        for (const property of SVG_PAINT_PROPERTIES) {
+          const color = normalizeSvgColor(element.getAttribute(property) || element.style?.getPropertyValue(property));
+          if (color && !colors.includes(color)) colors.push(color);
+        }
+      }
+      const svg = documentRoot.documentElement;
+      const graphicElements = Array.from(documentRoot.querySelectorAll("path, rect, circle, ellipse, line, polyline, polygon"));
+      const paths = Array.from(documentRoot.querySelectorAll("path"));
+      const pathCommands = /[AaCcHhLlMmQqSsTtVvZz]/g;
+      const paintLayers = graphicElements.map((element, index) => {
+        let depth = 0;
+        let ancestor = element.parentElement;
+        while (ancestor && ancestor !== svg) {
+          if (ancestor.localName === "g") depth += 1;
+          ancestor = ancestor.parentElement;
+        }
+        return {
+          number: index + 1,
+          element: element.localName,
+          id: element.getAttribute("id") || "",
+          paints: graphicElementPaints(element, svg),
+          opacity: element.getAttribute("opacity") || "",
+          attributes: Array.from(element.attributes, (attribute) => [attribute.name, attribute.value]),
+          groupDepth: depth
+        };
+      });
+      return {
+        colors,
+        viewBox: svg.getAttribute("viewBox") || "Not set",
+        width: svg.getAttribute("width") || "Not set",
+        height: svg.getAttribute("height") || "Not set",
+        paintLayers,
+        paintLayerCount: paintLayers.length,
+        topmostLayer: graphicElements.length ? describeGraphicElement(graphicElements.at(-1), svg) : "None",
+        pathCount: paths.length,
+        closedPathCount: paths.filter((path) => /[Zz]/.test(path.getAttribute("d") || "")).length,
+        pathSubpathCount: paths.reduce((count, path) => count + ((path.getAttribute("d") || "").match(/[Mm]/g)?.length || 0), 0),
+        pathCommandCount: paths.reduce((count, path) => count + ((path.getAttribute("d") || "").match(pathCommands)?.length || 0), 0),
+        groupCount: documentRoot.querySelectorAll("g").length,
+        maxGroupDepth: Math.max(0, ...paintLayers.map((layer) => layer.groupDepth)),
+        effects: describeSvgEffects(documentRoot),
+        byteSize: new TextEncoder().encode(sourceText).length,
+        accessibleName: svg.querySelector("title")?.textContent?.trim() || "Not defined",
+        description: svg.querySelector("desc")?.textContent?.trim() || "Not defined",
+        svg
+      };
+    })());
+  }
+  return assetSvgDataCache.get(source);
+}
+
+function loadAssetColors(source) {
+  return loadAssetSvgData(source).then((data) => data.colors);
+}
+
+function elementUsesSvgColor(element, color) {
+  return SVG_PAINT_PROPERTIES.some((property) => (
+    normalizeSvgColor(element.getAttribute(property) || element.style?.getPropertyValue(property)) === color
+  ));
+}
+
+function setPrimarySvgColorHighlight(root, color, highlighted) {
+  const svg = root.querySelector("svg");
+  if (!svg) return [];
+  const graphics = Array.from(svg.querySelectorAll("path, rect, circle, ellipse, line, polyline, polygon"));
+  graphics.forEach((element, index) => {
+    element.dataset.paintLayer = String(index + 1);
+  });
+
+  if (!highlighted) {
+    for (const element of graphics) {
+      element.classList.remove("is-color-highlighted", "is-color-muted");
+    }
+    return [];
+  }
+
+  const selected = graphics.filter((element) => {
+    let candidate = element;
+    while (candidate && candidate !== svg) {
+      if (elementUsesSvgColor(candidate, color)) return true;
+      candidate = candidate.parentElement;
+    }
+    return false;
+  });
+  const selectedSet = new Set(selected);
+  for (const element of graphics) {
+    element.classList.toggle("is-color-highlighted", selectedSet.has(element));
+    element.classList.toggle("is-color-muted", !selectedSet.has(element));
+  }
+  return selected;
+}
+
+function setPrimarySvgLayerHighlight(root, layerNumber, highlighted) {
+  const graphics = Array.from(root.querySelectorAll("svg :is(path, rect, circle, ellipse, line, polyline, polygon)"));
+  if (!highlighted) {
+    for (const element of graphics) {
+      element.classList.remove("is-color-highlighted", "is-color-muted");
+    }
+    return;
+  }
+
+  const selected = graphics[layerNumber - 1];
+  for (const element of graphics) {
+    element.classList.toggle("is-color-highlighted", element === selected);
+    element.classList.toggle("is-color-muted", element !== selected);
+  }
+}
+
+function describeSvgRegions(elements) {
+  const labels = { rect: "rectangle", ellipse: "ellipse", polyline: "polyline", polygon: "polygon" };
+  const counts = new Map();
+  for (const element of elements) {
+    const name = labels[element.localName] || element.localName;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return Array.from(counts, ([name, count]) => `${count} ${name}${count === 1 ? "" : "s"}`).join(", ");
+}
+
+function describeSvgLayers(elements) {
+  const layers = elements
+    .map((element) => Number(element.dataset.paintLayer))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const ranges = [];
+  for (const layer of layers) {
+    const current = ranges.at(-1);
+    if (current && layer === current[1] + 1) {
+      current[1] = layer;
+    } else {
+      ranges.push([layer, layer]);
+    }
+  }
+  const summary = ranges.map(([start, end]) => start === end ? String(start) : `${start}-${end}`).join(", ");
+  return `${layers.length === 1 ? "layer" : "layers"} ${summary}`;
+}
+
+function renderAssetPrimarySvg(root, asset) {
+  root.replaceChildren();
+  root.dataset.assetId = asset.id;
+  root.setAttribute("aria-label", `${asset.label} at 512px`);
+
+  loadAssetSvgData(asset.source).then((data) => {
+    if (!root.isConnected || root.dataset.assetId !== asset.id) return;
+    const svg = document.importNode(data.svg, true);
+    svg.removeAttribute("width");
+    svg.removeAttribute("height");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    applyAssetLayerEdits(svg, asset.id);
+    root.replaceChildren(svg);
+  }).catch(() => {
+    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Preview unavailable";
+  });
+}
+
+function updateAssetLayerEdits(assetId, layerNumber, updates) {
+  if (!assetLayerEdits.has(assetId)) assetLayerEdits.set(assetId, new Map());
+  const edits = assetLayerEdits.get(assetId);
+  const existing = edits.get(layerNumber) || { paints: {} };
+  edits.set(layerNumber, {
+    ...existing,
+    ...updates,
+    paints: { ...existing.paints, ...updates.paints }
+  });
+}
+
+function applyAssetLayerEdits(svg, assetId) {
+  if (!svg) return;
+  const edits = assetLayerEdits.get(assetId);
+  if (!edits) return;
+  const graphics = Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)"));
+  for (const [layerNumber, edit] of edits) {
+    const element = graphics[layerNumber - 1];
+    if (!element) continue;
+    for (const [property, value] of Object.entries(edit.paints)) {
+      element.setAttribute(property, value);
+    }
+    if (edit.opacity !== undefined) element.setAttribute("opacity", String(edit.opacity));
+    if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
+      const originalTransform = element.dataset.originalTransform ?? element.getAttribute("transform") ?? "";
+      element.dataset.originalTransform = originalTransform;
+      const translation = `translate(${edit.offsetX || 0} ${edit.offsetY || 0})`;
+      element.setAttribute("transform", `${originalTransform} ${translation}`.trim());
+    }
+  }
+}
+
+function renderAssetColorList(root, asset, onHighlight) {
+  root.textContent = "Loading...";
+  root.dataset.assetId = asset.id;
+
+  loadAssetColors(asset.source).then((colors) => {
+    if (!root.isConnected || root.dataset.assetId !== asset.id) return;
+    root.textContent = "";
+    if (!colors.length) {
+      root.textContent = "No explicit colors";
+      return;
+    }
+    for (const color of colors) {
+      const item = document.createElement("span");
+      item.className = "asset-color";
+      item.setAttribute("aria-label", color);
+      if (onHighlight) {
+        let hovered = false;
+        let focused = false;
+        const syncHighlight = () => {
+          const active = hovered || focused;
+          item.classList.toggle("is-active", active);
+          onHighlight(color, active);
+        };
+        item.tabIndex = 0;
+        item.addEventListener("mouseenter", () => { hovered = true; syncHighlight(); });
+        item.addEventListener("mouseleave", () => { hovered = false; syncHighlight(); });
+        item.addEventListener("focus", () => { focused = true; syncHighlight(); });
+        item.addEventListener("blur", () => { focused = false; syncHighlight(); });
+      }
+      const swatch = document.createElement("span");
+      swatch.className = "asset-color-swatch";
+      swatch.style.backgroundColor = color;
+      swatch.setAttribute("aria-hidden", "true");
+      item.dataset.tooltip = color;
+      item.appendChild(swatch);
+      root.appendChild(item);
+    }
+  }).catch(() => {
+    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Colors unavailable";
+  });
+}
+
+function renderStaticAssetColorList(root, colors, emptyMessage) {
+  root.textContent = "";
+  if (!colors.length) {
+    if (emptyMessage) root.textContent = emptyMessage;
+    return;
+  }
+  for (const color of colors) {
+    const item = document.createElement("span");
+    item.className = "asset-color";
+    item.setAttribute("aria-label", color);
+    item.dataset.tooltip = color;
+    const swatch = document.createElement("span");
+    swatch.className = "asset-color-swatch";
+    swatch.style.backgroundColor = color;
+    swatch.setAttribute("aria-hidden", "true");
+    item.appendChild(swatch);
+    root.appendChild(item);
+  }
+}
+
+function renderAssetDiagnostics(root, asset) {
+  root.textContent = "Loading...";
+  root.dataset.assetId = asset.id;
+
+  loadAssetSvgData(asset.source).then((data) => {
+    if (!root.isConnected || root.dataset.assetId !== asset.id) return;
+    root.textContent = "";
+    const diagnostics = [
+      ["ViewBox", data.viewBox],
+      ["Source size", `${data.width} × ${data.height}`],
+      ["Paint layers", `${data.paintLayerCount} primitives`],
+      ["Layer order", "DOM order, bottom → top"],
+      ["Topmost layer", data.topmostLayer],
+      ["Paths", `${data.pathCount} (${data.closedPathCount} closed, ${data.pathCount - data.closedPathCount} open)`],
+      ["Path subpaths", String(data.pathSubpathCount)],
+      ["Path commands", String(data.pathCommandCount)],
+      ["Groups", data.groupCount ? `${data.groupCount} (max depth ${data.maxGroupDepth})` : "None"],
+      ["Effects", data.effects],
+      ["File size", data.byteSize < 1024 ? `${data.byteSize} B` : `${(data.byteSize / 1024).toFixed(1)} KB`],
+      ["Accessible title", data.accessibleName],
+      ["Description", data.description]
+    ];
+    for (const [label, value] of diagnostics) {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const description = document.createElement("dd");
+      description.textContent = value;
+      root.appendChild(term);
+      root.appendChild(description);
+    }
+  }).catch(() => {
+    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Diagnostics unavailable";
+  });
+}
+
+function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
+  root.textContent = "Loading...";
+  root.dataset.assetId = asset.id;
+  editorPanel.hidden = true;
+  editorPanel.replaceChildren();
+
+  loadAssetSvgData(asset.source).then((data) => {
+    if (!root.isConnected || root.dataset.assetId !== asset.id) return;
+    root.textContent = "";
+    let selectedLayerNumber = null;
+    let hoveredLayerNumber = null;
+    let focusedLayerNumber = null;
+    const layerItems = new Map();
+    const layerButtons = new Map();
+    const layerEdits = assetLayerEdits.get(asset.id) || new Map();
+    const syncHighlight = () => {
+      const highlightedLayerNumber = hoveredLayerNumber ?? focusedLayerNumber ?? selectedLayerNumber;
+      for (const [layerNumber, item] of layerItems) {
+        item.classList.toggle("is-active", layerNumber === highlightedLayerNumber);
+        item.classList.toggle("is-selected", layerNumber === selectedLayerNumber);
+        layerButtons.get(layerNumber)?.setAttribute("aria-pressed", String(layerNumber === selectedLayerNumber));
+      }
+      onHighlight(highlightedLayerNumber, highlightedLayerNumber !== null);
+    };
+    for (const layer of [...data.paintLayers].reverse()) {
+      const item = document.createElement("li");
+      item.value = layer.number;
+      let toggleSelection;
+      if (onHighlight) {
+        item.addEventListener("mouseenter", () => { hoveredLayerNumber = layer.number; syncHighlight(); });
+        item.addEventListener("mouseleave", () => {
+          if (hoveredLayerNumber === layer.number) hoveredLayerNumber = null;
+          syncHighlight();
+        });
+        toggleSelection = () => {
+          selectedLayerNumber = selectedLayerNumber === layer.number ? null : layer.number;
+          syncHighlight();
+        };
+        item.addEventListener("click", toggleSelection);
+      }
+      const number = document.createElement(onHighlight ? "button" : "span");
+      number.className = "asset-layer-number";
+      number.textContent = String(layer.number);
+      if (onHighlight) {
+        number.type = "button";
+        number.setAttribute("aria-label", `Select layer ${layer.number}`);
+        number.setAttribute("aria-pressed", "false");
+        number.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleSelection();
+        });
+        number.addEventListener("focus", () => { focusedLayerNumber = layer.number; syncHighlight(); });
+        number.addEventListener("blur", () => {
+          if (focusedLayerNumber === layer.number) focusedLayerNumber = null;
+          syncHighlight();
+        });
+      }
+      const identity = document.createElement("div");
+      identity.className = "asset-layer-identity";
+      const elementName = document.createElement("code");
+      elementName.textContent = layer.element;
+      identity.appendChild(elementName);
+      if (layer.id) {
+        const id = document.createElement("code");
+        id.textContent = `#${layer.id}`;
+        identity.appendChild(id);
+      }
+      if (layer.groupDepth) {
+        const depth = document.createElement("span");
+        depth.textContent = `group depth ${layer.groupDepth}`;
+        identity.appendChild(depth);
+      }
+
+      const details = document.createElement("div");
+      details.className = "asset-layer-details";
+      const paints = document.createElement("div");
+      paints.className = "asset-layer-paints";
+      const positionPopover = (popover, trigger) => {
+        if (!popover.matches(":popover-open")) popover.showPopover();
+        const triggerBounds = trigger.getBoundingClientRect();
+        const popoverBounds = popover.getBoundingClientRect();
+        popover.style.top = `${Math.min(triggerBounds.bottom + 6, window.innerHeight - popoverBounds.height - 8)}px`;
+        popover.style.left = `${Math.max(8, Math.min(triggerBounds.left, window.innerWidth - popoverBounds.width - 8))}px`;
+      };
+      const currentEdits = layerEdits.get(layer.number) || { paints: {} };
+      let firstColorInput = null;
+      for (const [property, value] of layer.paints) {
+        const editedValue = currentEdits.paints[property] || value;
+        const paint = document.createElement("span");
+        paint.className = "asset-layer-paint";
+        const color = normalizeSvgColor(editedValue);
+        const label = document.createElement("code");
+        label.textContent = color ? property : `${property} ${editedValue}`;
+        paint.appendChild(label);
+        if (color) {
+          const colorInput = document.createElement("input");
+          colorInput.className = "asset-layer-color-input";
+          colorInput.type = "color";
+          colorInput.id = `asset-layer-color-input-${asset.id}-${layer.number}-${property}`;
+          colorInput.value = color;
+          colorInput.setAttribute("aria-label", `Layer ${layer.number} ${property} color`);
+          colorInput.addEventListener("click", (event) => event.stopPropagation());
+          colorInput.addEventListener("keydown", (event) => event.stopPropagation());
+          colorInput.addEventListener("input", () => {
+            const nextValue = colorInput.value.toUpperCase();
+            updateAssetLayerEdits(asset.id, layer.number, { paints: { [property]: nextValue } });
+            label.textContent = property;
+            onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+          });
+          paint.appendChild(colorInput);
+          if (!firstColorInput) firstColorInput = colorInput;
+        }
+        paints.appendChild(paint);
+      }
+      const opacityEditor = document.createElement("div");
+      opacityEditor.className = "asset-layer-editor asset-layer-opacity-editor";
+      opacityEditor.id = `asset-layer-opacity-editor-${asset.id}-${layer.number}`;
+      opacityEditor.setAttribute("popover", "auto");
+      opacityEditor.setAttribute("role", "dialog");
+      opacityEditor.setAttribute("aria-label", `Edit layer ${layer.number} opacity`);
+      const opacityControl = document.createElement("label");
+      opacityControl.className = "asset-layer-opacity-control";
+      opacityControl.textContent = "Opacity";
+      const decrement = document.createElement("button");
+      decrement.type = "button";
+      decrement.className = "asset-layer-opacity-step";
+      decrement.setAttribute("aria-label", "Decrease opacity");
+      decrement.innerHTML = '<i data-lucide="minus" aria-hidden="true"></i>';
+      const opacitySlider = document.createElement("input");
+      opacitySlider.type = "range";
+      opacitySlider.min = "0";
+      opacitySlider.max = "1";
+      opacitySlider.step = "0.01";
+      const opacityInput = document.createElement("input");
+      opacityInput.type = "number";
+      opacityInput.min = "0";
+      opacityInput.max = "1";
+      opacityInput.step = "0.01";
+      opacityInput.value = String(currentEdits.opacity ?? (layer.opacity === "" ? 1 : Number(layer.opacity)));
+      opacitySlider.value = opacityInput.value;
+      opacityInput.setAttribute("aria-label", `Layer ${layer.number} opacity`);
+      opacityInput.addEventListener("click", (event) => event.stopPropagation());
+      opacityInput.addEventListener("keydown", (event) => event.stopPropagation());
+      const setOpacity = (value) => {
+        const nextOpacity = Number(value);
+        if (!Number.isFinite(nextOpacity) || nextOpacity < 0 || nextOpacity > 1) return;
+        opacityInput.value = String(nextOpacity);
+        opacitySlider.value = String(nextOpacity);
+        updateAssetLayerEdits(asset.id, layer.number, { opacity: nextOpacity });
+        opacityValue.lastChild.textContent = String(nextOpacity);
+        onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+      };
+      opacityInput.addEventListener("input", () => setOpacity(opacityInput.value));
+      opacitySlider.addEventListener("input", () => setOpacity(opacitySlider.value));
+      decrement.addEventListener("click", () => setOpacity(Math.max(0, Number(opacityInput.value) - 0.01)));
+      const increment = document.createElement("button");
+      increment.type = "button";
+      increment.className = "asset-layer-opacity-step";
+      increment.setAttribute("aria-label", "Increase opacity");
+      increment.innerHTML = '<i data-lucide="plus" aria-hidden="true"></i>';
+      increment.addEventListener("click", () => setOpacity(Math.min(1, Number(opacityInput.value) + 0.01)));
+      opacityControl.append(decrement, opacitySlider, opacityInput, increment);
+      opacityEditor.appendChild(opacityControl);
+      const opacityValue = document.createElement("button");
+      opacityValue.type = "button";
+      opacityValue.className = "asset-layer-opacity-value";
+      opacityValue.setAttribute("aria-label", `Edit layer ${layer.number} opacity`);
+      opacityValue.setAttribute("aria-controls", opacityEditor.id);
+      opacityValue.setAttribute("aria-expanded", "false");
+      opacityValue.title = "Edit opacity";
+      opacityValue.innerHTML = `<i data-lucide="circle-gauge" aria-hidden="true"></i><span>${opacityInput.value}</span>`;
+      opacityValue.addEventListener("click", (event) => {
+        event.stopPropagation();
+        positionPopover(opacityEditor, opacityValue);
+      });
+      opacityEditor.addEventListener("toggle", () => opacityValue.setAttribute("aria-expanded", String(opacityEditor.matches(":popover-open"))));
+      const layerEditor = document.createElement("div");
+      layerEditor.className = "asset-layer-editor asset-layer-edit-mode";
+      layerEditor.id = `asset-layer-edit-mode-${asset.id}-${layer.number}`;
+      const editorHeader = document.createElement("div");
+      editorHeader.className = "asset-layer-edit-mode-header";
+      const editorTitle = document.createElement("strong");
+      editorTitle.textContent = `Layer ${layer.number}`;
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "asset-layer-editor-close";
+      closeButton.setAttribute("aria-label", "Close layer editor");
+      closeButton.title = "Close layer editor";
+      closeButton.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
+      editorHeader.append(editorTitle, closeButton);
+      const moveControls = document.createElement("div");
+      moveControls.className = "asset-layer-move-controls";
+      const xInput = document.createElement("input");
+      xInput.type = "number";
+      xInput.step = "1";
+      xInput.value = String(currentEdits.offsetX || 0);
+      xInput.setAttribute("aria-label", `Layer ${layer.number} horizontal offset`);
+      const yInput = document.createElement("input");
+      yInput.type = "number";
+      yInput.step = "1";
+      yInput.value = String(currentEdits.offsetY || 0);
+      yInput.setAttribute("aria-label", `Layer ${layer.number} vertical offset`);
+      const setPosition = (x, y) => {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        xInput.value = String(x);
+        yInput.value = String(y);
+        updateAssetLayerEdits(asset.id, layer.number, { offsetX: x, offsetY: y });
+        onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+      };
+      xInput.addEventListener("input", () => setPosition(Number(xInput.value), Number(yInput.value)));
+      yInput.addEventListener("input", () => setPosition(Number(xInput.value), Number(yInput.value)));
+      const createNudgeButton = (direction, icon, xDelta, yDelta) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `asset-layer-nudge-button asset-layer-nudge-button--${direction}`;
+        button.setAttribute("aria-label", `Move layer ${direction}`);
+        button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
+        button.addEventListener("click", () => setPosition(Number(xInput.value) + xDelta, Number(yInput.value) + yDelta));
+        return button;
+      };
+      const moveHeading = document.createElement("span");
+      moveHeading.textContent = "Position";
+      const xLabel = document.createElement("label");
+      xLabel.className = "asset-layer-position-input asset-layer-position-input--x";
+      xLabel.textContent = "X";
+      xLabel.appendChild(xInput);
+      const yLabel = document.createElement("label");
+      yLabel.className = "asset-layer-position-input asset-layer-position-input--y";
+      yLabel.textContent = "Y";
+      yLabel.appendChild(yInput);
+      const positionInputs = document.createElement("div");
+      positionInputs.className = "asset-layer-position-inputs";
+      positionInputs.append(xLabel, yLabel);
+      moveControls.append(
+        moveHeading,
+        createNudgeButton("up", "arrow-up", 0, -1),
+        createNudgeButton("left", "arrow-left", -1, 0),
+        positionInputs,
+        createNudgeButton("right", "arrow-right", 1, 0),
+        createNudgeButton("down", "arrow-down", 0, 1)
+      );
+      const attributes = document.createElement("dl");
+      attributes.className = "asset-layer-attributes";
+      for (const [name, value] of layer.attributes) {
+        const term = document.createElement("dt");
+        term.textContent = name;
+        const description = document.createElement("dd");
+        description.textContent = value;
+        attributes.append(term, description);
+      }
+      layerEditor.append(editorHeader, moveControls, attributes);
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "asset-layer-edit-button";
+      editButton.setAttribute("aria-label", `Edit layer ${layer.number}`);
+      editButton.setAttribute("aria-controls", layerEditor.id);
+      editButton.setAttribute("aria-expanded", "false");
+      editButton.title = `Edit layer ${layer.number}`;
+      editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+      editButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        root.hidden = true;
+        editorPanel.replaceChildren(layerEditor);
+        editorPanel.hidden = false;
+        editButton.setAttribute("aria-expanded", "true");
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        editorPanel.scrollIntoView({ block: "nearest" });
+        closeButton.focus();
+      });
+      closeButton.addEventListener("click", () => {
+        editorPanel.hidden = true;
+        editorPanel.replaceChildren();
+        root.hidden = false;
+        editButton.setAttribute("aria-expanded", "false");
+        editButton.focus();
+      });
+      details.appendChild(paints);
+      details.append(opacityValue, editButton, opacityEditor);
+      item.appendChild(number);
+      item.appendChild(identity);
+      item.appendChild(details);
+      root.appendChild(item);
+      layerItems.set(layer.number, item);
+      if (onHighlight) layerButtons.set(layer.number, number);
+    }
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }).catch(() => {
+    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Layer information unavailable";
+  });
+}
+
+function showToast(message) {
+  const toast = document.getElementById("app-toast");
+  if (!toast) return;
+  window.clearTimeout(toastTimeout);
+  toast.textContent = message;
+  toast.hidden = false;
+  toastTimeout = window.setTimeout(() => {
+    toast.hidden = true;
+    toast.textContent = "";
+  }, 2400);
+}
+
+function renderActiveProjectPrompt() {
+  const prompt = document.getElementById("project-sample-prompt");
+  const count = document.getElementById("project-prompt-count");
+  const previous = document.getElementById("project-prompt-previous");
+  const next = document.getElementById("project-prompt-next");
+  if (!prompt || !count || !previous || !next) return;
+
+  prompt.textContent = projectSamplePrompts[activeProjectPromptIndex] || "";
+  count.textContent = projectSamplePrompts.length
+    ? `${activeProjectPromptIndex + 1} of ${projectSamplePrompts.length}`
+    : "0 of 0";
+  const hasMultiplePrompts = projectSamplePrompts.length > 1;
+  previous.disabled = !hasMultiplePrompts;
+  next.disabled = !hasMultiplePrompts;
+}
+
+function normalizeProjectPrompt(prompt, projectName, projectSlug) {
+  const fields = `Project: ${projectName}\nDirectory: assets/svg/${projectSlug}/`;
+  const content = String(prompt)
+    .replace(/^Project:.*(?:\r?\n)?/gm, "")
+    .replace(/^Directory:.*(?:\r?\n)?/gm, "")
+    .trimEnd();
+  return content ? `${content}\n\n${fields}` : fields;
+}
+
+const PROJECT_ICON_SLOTS = [
+  { id: "favicon", label: "Favicon", usage: "Browser tabs and bookmarks" },
+  { id: "appIcon", label: "App Icon", usage: "PWA launcher and app switchers" },
+  { id: "logoMark", label: "Logo Mark", usage: "Compact nav and small brand surfaces" },
+  { id: "wordmark", label: "Wordmark", usage: "Headers, login, and marketing bars" },
+  { id: "socialPreview", label: "Social Preview", usage: "Open Graph and shared links" }
+];
+
+// Common icon targets used across web, desktop apps, iOS, and Android.
+const COMMON_PREVIEW_SIZES = [
+  16, 20, 24, 29, 32, 40, 48, 64, 72, 96, 120, 128, 144, 152, 167, 180, 192, 256, 384, 512
+];
+
+function logoTypeForAsset(asset) {
+  const raw = String(asset.logoType ?? "").trim();
+  return raw || "Uncategorized Type";
+}
+
+function decodeHashSegment(value) {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch (_error) {
+    decoded = value;
+  }
+  return decoded;
+}
+
+function projectRouteHref(projectName) {
+  return `#project/${encodeURIComponent(projectName)}`;
+}
+
+function sourceRouteHref(projectName, sourcePath) {
+  return `#source/${encodeURIComponent(projectName)}/${encodeURIComponent(sourcePath)}`;
+}
+
+function resolveAssetPath(value) {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (String(value).startsWith("/")) return value;
+  return `../${value}`;
+}
+
+function normalizeProjectSteer(projectName) {
+  const projectMeta = projectMetaByName.get(projectName);
+  if (!projectMeta || !projectMeta.agentSteer) {
+    return { notes: [], sources: [], favoriteColors: [], customColors: [] };
+  }
+
+  const fromManifest = projectMeta.agentSteer;
+
+  const notes = Array.isArray(fromManifest.notes) ? fromManifest.notes.map((item) => String(item).trim()).filter(Boolean) : [];
+  const sources = Array.isArray(fromManifest.sources) ? fromManifest.sources : [];
+  const favoriteColors = Array.isArray(fromManifest.favoriteColors)
+    ? fromManifest.favoriteColors.map((color) => String(color).toUpperCase()).filter((color) => /^#[0-9A-F]{6}$/.test(color))
+    : [];
+  const customColors = Array.isArray(fromManifest.customColors)
+    ? fromManifest.customColors.map((color) => String(color).toUpperCase()).filter((color) => /^#[0-9A-F]{6}$/.test(color))
+    : [];
+  return { notes, sources, favoriteColors, customColors };
+}
+
+async function updateProjectFavoriteColor(project, color, selected, custom = false) {
+  const response = await fetch("/~project-color", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, color, selected, custom })
+  });
+  const result = await response.json();
+  if (!response.ok || result.error) throw new Error(result.error || "Favorite color update failed");
+  return result;
+}
+
+function normalizeProjectSlots(projectName) {
+  const projectMeta = projectMetaByName.get(projectName);
+  const slotMap = projectMeta?.iconSlots && typeof projectMeta.iconSlots === "object"
+    ? projectMeta.iconSlots
+    : {};
+
+  return PROJECT_ICON_SLOTS.map((slot) => {
+    const configured = slotMap[slot.id] || {};
+    return {
+      ...slot,
+      title: String(configured.title || slot.label),
+      note: String(configured.note || "").trim(),
+      assetId: String(configured.assetId || "").trim(),
+      src: String(configured.src || "").trim(),
+      url: String(configured.url || "").trim()
+    };
+  });
+}
+
+function resolveSlotPreview(slot) {
+  if (slot.assetId) {
+    const asset = assetById.get(slot.assetId);
+    if (asset) {
+      return {
+        sourceType: "asset",
+        src: resolveAssetPath(asset.source),
+        label: asset.label,
+        href: `#asset/${encodeURIComponent(asset.id)}`
+      };
+    }
+  }
+
+  if (slot.src) {
+    return {
+      sourceType: "src",
+      src: resolveAssetPath(slot.src),
+      label: slot.src,
+      href: ""
+    };
+  }
+
+  if (slot.url) {
+    return {
+      sourceType: "url",
+      src: "",
+      label: slot.url,
+      href: slot.url
+    };
+  }
+
+  return {
+    sourceType: "empty",
+    src: "",
+    label: "",
+    href: ""
+  };
+}
+
+function primaryProjectAsset(projectName, projectAssets) {
+  const projectMeta = projectMetaByName.get(projectName);
+  const primaryAssetId = String(projectMeta?.primaryAssetId || "").trim();
+
+  if (primaryAssetId) {
+    const matched = projectAssets.find((asset) => asset.id === primaryAssetId);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return projectAssets[0] || null;
+}
+
+function projectForAsset(asset) {
+  const raw = String(asset.project ?? "").trim();
+  return raw || "Unassigned Project";
+}
+
+function buildProjectAssets(assets) {
+  // Seed with all manifest projects so empty ones still render
+  const byProject = new Map(
+    Array.from(projectMetaByName.keys()).map((name) => [name, []])
+  );
+  for (const asset of assets) {
+    const project = projectForAsset(asset);
+    if (!byProject.has(project)) {
+      byProject.set(project, []);
+    }
+    byProject.get(project).push(asset);
+  }
+
+  return Array.from(byProject.entries())
+    .map(([project, grouped]) => [project, grouped.sort((a, b) => a.label.localeCompare(b.label))])
+    .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function uniqueSortedSizes(asset) {
+  const variantSizes = (asset.variants ?? [])
+    .map((variant) => Number(variant.size))
+    .filter((value) => Number.isFinite(value));
+  const allSizes = [...COMMON_PREVIEW_SIZES, ...variantSizes];
+  return Array.from(new Set(allSizes)).sort((a, b) => a - b);
+}
+
+function setMainViewVisibility(route) {
+  const logosSection = document.getElementById("logos");
+  const diagramsSection = document.getElementById("diagrams");
+  const assetDetailSection = document.getElementById("asset-detail");
+  const sourceDetailSection = document.getElementById("source-detail");
+  const projectDetailSection = document.getElementById("project-detail");
+  if (!logosSection || !diagramsSection || !assetDetailSection || !sourceDetailSection || !projectDetailSection) return;
+
+  const onAssetPage = route.page === "asset";
+  const onSourcePage = route.page === "source";
+  const onProjectPage = route.page === "project";
+  const onDetailPage = onAssetPage || onSourcePage || onProjectPage;
+
+  logosSection.classList.toggle("is-hidden", onDetailPage);
+  diagramsSection.classList.toggle("is-hidden", onDetailPage);
+  assetDetailSection.classList.toggle("is-hidden", !onAssetPage);
+  sourceDetailSection.classList.toggle("is-hidden", !onSourcePage);
+  projectDetailSection.classList.toggle("is-hidden", !onProjectPage);
+}
+
+function renderLogos(assets) {
+  const groupsRoot = document.getElementById("logo-groups");
+  if (!groupsRoot) return;
+
+  groupsRoot.innerHTML = "";
+  groupsRoot.classList.add("logo-groups--project");
+
+  const groupedAssets = buildProjectAssets(assets);
+
+  for (const [projectName, groupAssets] of groupedAssets) {
+    const groupSection = document.createElement("section");
+    groupSection.className = "logo-group";
+
+    const header = document.createElement("div");
+    header.className = "logo-group-header";
+
+    const heading = document.createElement("h4");
+    const titleLink = document.createElement("a");
+    titleLink.className = "project-title-link";
+    titleLink.href = projectRouteHref(projectName);
+    titleLink.textContent = projectName;
+    heading.appendChild(titleLink);
+
+    const count = document.createElement("p");
+    count.textContent = `${groupAssets.length} item${groupAssets.length === 1 ? "" : "s"}`;
+
+    const grid = document.createElement("div");
+    grid.className = "asset-grid";
+
+    header.appendChild(heading);
+    header.appendChild(count);
+    groupSection.appendChild(header);
+
+    const visibleAssets = [primaryProjectAsset(projectName, groupAssets)].filter(Boolean);
+
+    if (visibleAssets.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "project-empty-state";
+      const emptyLink = document.createElement("a");
+      emptyLink.href = projectRouteHref(projectName);
+      emptyLink.className = "project-empty-cta";
+      emptyLink.innerHTML = '<i data-lucide="image-plus" aria-hidden="true"></i><span>Add first asset</span>';
+      empty.appendChild(emptyLink);
+      groupSection.appendChild(empty);
+    } else {
+      for (const asset of visibleAssets) {
+      const tile = document.createElement("article");
+      tile.className = "asset-tile";
+
+      const frame = document.createElement("div");
+      frame.className = "logo-frame";
+
+      const img = document.createElement("img");
+      img.src = `../${asset.source}`;
+      img.alt = asset.label;
+
+      const title = document.createElement("h3");
+      title.textContent = asset.label;
+
+      const idText = document.createElement("p");
+      idText.textContent = asset.id;
+
+      const detailLink = document.createElement("a");
+      detailLink.className = "asset-detail-link";
+      detailLink.href = `#asset/${encodeURIComponent(asset.id)}`;
+      detailLink.textContent = "View details";
+
+      const iconLink = document.createElement("a");
+      iconLink.className = "project-icon-link";
+      iconLink.href = projectRouteHref(projectName);
+      iconLink.setAttribute("aria-label", `Open project page for ${projectName}`);
+      iconLink.appendChild(img);
+      frame.appendChild(iconLink);
+      tile.prepend(frame);
+
+      if (activeGroupingMode !== "project") {
+        tile.appendChild(title);
+        tile.appendChild(idText);
+        tile.appendChild(detailLink);
+      }
+      grid.appendChild(tile);
+    }
+    groupSection.appendChild(grid);
+    }
+
+    groupsRoot.appendChild(groupSection);
+  }
+}
+
+function renderAssetDetail(assetId) {
+  const title = document.getElementById("asset-detail-title");
+  const meta = document.getElementById("asset-detail-meta");
+  const deepLink = document.getElementById("asset-deep-link");
+  const projectLink = document.getElementById("asset-project-link");
+  const overview = document.getElementById("asset-detail-overview");
+  const primaryPreview = document.getElementById("asset-primary-preview");
+  const primarySvg = document.getElementById("asset-primary-svg");
+  const colorsSection = document.getElementById("asset-detail-colors-section");
+  const colorsList = document.getElementById("asset-detail-colors");
+  const projectColorsList = document.getElementById("asset-project-colors");
+  const customColorsList = document.getElementById("asset-custom-colors");
+  const customColorForm = document.getElementById("asset-custom-color-form");
+  const customColorInput = document.getElementById("asset-custom-color-input");
+  const customColorAddButton = document.getElementById("asset-custom-color-add");
+  const highlightStatus = document.getElementById("asset-color-highlight-status");
+  const diagnostics = document.getElementById("asset-detail-diagnostics");
+  const layersSection = document.getElementById("asset-detail-layers-section");
+  const layersList = document.getElementById("asset-detail-layers");
+  const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
+  const sizesSection = document.getElementById("asset-sizes-section");
+  const sizeGrid = document.getElementById("asset-size-grid");
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !sizesSection || !sizeGrid) return;
+
+  sizeGrid.innerHTML = "";
+  colorsList.textContent = "";
+  projectColorsList.textContent = "";
+  customColorsList.textContent = "";
+  highlightStatus.textContent = "";
+  diagnostics.textContent = "";
+  layersList.textContent = "";
+  layerEditorPanel.hidden = true;
+  layerEditorPanel.replaceChildren();
+  sizesSection.open = false;
+  const asset = assetById.get(assetId);
+
+  if (!asset) {
+    title.textContent = "Asset not found";
+    meta.textContent = `No logo or glyph exists for id: ${assetId}`;
+    deepLink.href = window.location.href;
+    projectLink.href = "#logos";
+    projectLink.setAttribute("aria-label", "Back to all assets");
+    projectLink.title = "Back to all assets";
+    overview.hidden = true;
+    layersSection.hidden = true;
+    sizesSection.hidden = true;
+    return;
+  }
+
+  const projectName = projectForAsset(asset);
+  title.textContent = asset.label;
+  meta.textContent = `${asset.id} · ${asset.source} · ${projectName} · ${logoTypeForAsset(asset)}`;
+  deepLink.href = window.location.href;
+  deepLink.setAttribute("aria-label", `${asset.label} deep link`);
+  projectLink.href = projectRouteHref(projectName);
+  projectLink.setAttribute("aria-label", `Back to ${projectName}`);
+  projectLink.title = `Back to ${projectName}`;
+  overview.hidden = false;
+  layersSection.hidden = false;
+  sizesSection.hidden = false;
+  renderAssetPrimarySvg(primarySvg, asset);
+  renderAssetColorList(colorsList, asset, (color, highlighted) => {
+    const regions = setPrimarySvgColorHighlight(primarySvg, color, highlighted);
+    highlightStatus.textContent = highlighted && regions.length
+      ? `${describeSvgRegions(regions)} highlighted for ${color}; ${describeSvgLayers(regions)}.`
+      : "";
+  });
+  const projectPalette = normalizeProjectSteer(projectName).favoriteColors;
+  renderStaticAssetColorList(projectColorsList, projectPalette, "No project favorites");
+  const renderCustomColors = () => {
+    renderStaticAssetColorList(customColorsList, assetCustomColors.get(asset.id) || []);
+  };
+  const addCustomColor = () => {
+    const color = customColorInput.value.toUpperCase();
+    const colors = assetCustomColors.get(asset.id) || [];
+    if (!colors.includes(color)) assetCustomColors.set(asset.id, [...colors, color]);
+    renderCustomColors();
+  };
+  renderCustomColors();
+  customColorForm.onsubmit = (event) => event.preventDefault();
+  customColorAddButton.onclick = () => {
+    if (customColorInput.showPicker) customColorInput.showPicker();
+    else customColorInput.click();
+  };
+  customColorInput.onchange = addCustomColor;
+  renderAssetDiagnostics(diagnostics, asset);
+  renderAssetLayers(
+    layersList,
+    layerEditorPanel,
+    asset,
+    (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
+    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id)
+  );
+
+  for (const size of uniqueSortedSizes(asset).filter((value) => value !== 512)) {
+    const card = document.createElement("article");
+    card.className = "size-preview-card";
+
+    const displaySize = Math.min(size, 220);
+    const frameSize = Math.max(displaySize + 32, 120);
+    const frame = document.createElement("div");
+    frame.className = "size-preview-frame";
+    frame.style.setProperty("--frame-size", `${frameSize}px`);
+    frame.style.setProperty("--img-size", `${displaySize}px`);
+
+    const img = document.createElement("img");
+    img.src = `../${asset.source}`;
+    img.alt = `${asset.label} at ${size}px`;
+
+    const caption = document.createElement("p");
+    caption.className = "size-preview-caption";
+    caption.textContent = `${size}px`;
+
+    frame.appendChild(img);
+    card.appendChild(frame);
+    card.appendChild(caption);
+    sizeGrid.appendChild(card);
+  }
+}
+
+function renderSourceDetail(projectName, sourcePath) {
+  const title = document.getElementById("source-detail-title");
+  const meta = document.getElementById("source-detail-meta");
+  const projectLink = document.getElementById("source-project-link");
+  const deepLink = document.getElementById("source-deep-link");
+  const image = document.getElementById("source-detail-image");
+  const reference = document.getElementById("source-prompt-reference");
+  const copyStatus = document.getElementById("source-copy-status");
+  if (!title || !meta || !projectLink || !deepLink || !image || !reference || !copyStatus) return;
+
+  const projectMeta = projectMetaByName.get(projectName);
+  const source = projectMeta?.agentSteer?.sources?.find((item) => item.kind === "image" && item.src === sourcePath);
+  projectLink.href = projectRouteHref(projectName);
+  projectLink.textContent = `Back to ${projectName}`;
+  copyStatus.textContent = "";
+
+  if (!source) {
+    title.textContent = "Source image not found";
+    meta.textContent = "This source may have been renamed or removed.";
+    image.hidden = true;
+    reference.textContent = window.location.href;
+    deepLink.href = window.location.href;
+    return;
+  }
+
+  title.textContent = String(source.title || "Source Image");
+  meta.textContent = `${projectName} · ${source.src}`;
+  image.hidden = false;
+  image.src = resolveAssetPath(source.src);
+  image.alt = String(source.alt || source.title || "Steering source image");
+  deepLink.href = window.location.href;
+  deepLink.setAttribute("aria-label", `${source.title || "Source image"} deep link`);
+  reference.textContent = `Steering source: ${window.location.href}\nRepository file: ${source.src}`;
+}
+
+function renderProjectDetail(projectName) {
+  const title = document.getElementById("project-detail-title");
+  const deepLink = document.getElementById("project-deep-link");
+  const grid = document.getElementById("project-asset-grid");
+  const notesList = document.getElementById("project-steer-notes");
+  const sourcesGrid = document.getElementById("project-steer-sources");
+  const emptyState = document.getElementById("project-steer-empty");
+  const favoriteColorsRoot = document.getElementById("project-favorite-colors");
+  const favoriteColorsEmpty = document.getElementById("project-favorite-colors-empty");
+  const customColorForm = document.getElementById("project-custom-color-form");
+  const customColorInput = document.getElementById("project-custom-color-input");
+  const customColorValue = document.getElementById("project-custom-color-value");
+  const customColorStatus = document.getElementById("project-custom-color-status");
+  const slotsGrid = document.getElementById("project-icon-slots");
+  const promptsRoot = document.getElementById("project-sample-prompts");
+  const promptCopyStatus = document.getElementById("project-prompt-copy-status");
+  const docsRoot = document.getElementById("project-documentation-links");
+  const generateButton = document.getElementById("project-generate-new");
+  const generatePanel = document.getElementById("project-generate-panel");
+  const renameForm = document.getElementById("project-rename-form");
+  const renameInput = document.getElementById("project-rename-input");
+  const renameStatus = document.getElementById("project-rename-status");
+  if (!title || !deepLink || !grid || !notesList || !sourcesGrid || !emptyState || !favoriteColorsRoot || !favoriteColorsEmpty || !customColorForm || !customColorInput || !customColorValue || !customColorStatus || !slotsGrid || !promptsRoot || !promptCopyStatus || !docsRoot || !generateButton || !generatePanel || !renameForm || !renameInput || !renameStatus) return;
+
+  grid.innerHTML = "";
+  notesList.innerHTML = "";
+  sourcesGrid.innerHTML = "";
+  favoriteColorsRoot.innerHTML = "";
+  customColorStatus.textContent = "";
+  slotsGrid.innerHTML = "";
+  promptCopyStatus.textContent = "";
+  docsRoot.innerHTML = "";
+  const targetProject = String(projectName || "").trim();
+  const projectMeta = projectMetaByName.get(targetProject);
+  const projectAssets = assetData
+    .filter((asset) => projectForAsset(asset) === targetProject)
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  if (!targetProject || (!projectMeta && !projectAssets.length)) {
+    title.textContent = "Project not found";
+    deepLink.href = window.location.href;
+    deepLink.setAttribute("aria-label", "Project deep link");
+    emptyState.classList.remove("is-hidden");
+    return;
+  }
+
+  title.textContent = targetProject;
+  renameForm.dataset.project = targetProject;
+  renameForm.hidden = true;
+  renameInput.value = targetProject;
+  renameStatus.textContent = "";
+  deepLink.href = window.location.href;
+  deepLink.setAttribute("aria-label", `${targetProject} project deep link`);
+
+  const steer = normalizeProjectSteer(targetProject);
+
+  const syncFavoriteSwatches = (color) => {
+    const selected = steer.favoriteColors.includes(color);
+    for (const swatch of sourcesGrid.querySelectorAll(`.source-material-swatch[data-color="${color}"]`)) {
+      swatch.setAttribute("aria-pressed", String(selected));
+      swatch.setAttribute("aria-label", `${selected ? "Remove" : "Select"} ${color} as a project favorite`);
+    }
+  };
+
+  const applyFavoriteResult = (result, color) => {
+    steer.favoriteColors = result.favoriteColors || [];
+    steer.customColors = result.customColors || [];
+    renderFavoriteColors();
+    syncFavoriteSwatches(color);
+  };
+
+  const renderFavoriteColors = () => {
+    favoriteColorsRoot.innerHTML = "";
+    favoriteColorsEmpty.hidden = steer.favoriteColors.length > 0;
+    for (const color of steer.favoriteColors) {
+      const item = document.createElement("div");
+      item.className = "project-favorite-color";
+      const swatch = document.createElement("span");
+      swatch.className = "project-favorite-color-swatch";
+      swatch.style.setProperty("--favorite-color", color);
+      swatch.setAttribute("aria-hidden", "true");
+      const value = document.createElement("code");
+      value.textContent = color;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "project-favorite-color-remove";
+      remove.setAttribute("aria-label", `Remove ${color} from project favorites`);
+      remove.title = "Remove color";
+      remove.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        try {
+          const result = await updateProjectFavoriteColor(targetProject, color, false, steer.customColors.includes(color));
+          applyFavoriteResult(result, color);
+        } catch (error) {
+          customColorStatus.textContent = error.message;
+          remove.disabled = false;
+        }
+      });
+      item.append(swatch, value, remove);
+      favoriteColorsRoot.appendChild(item);
+    }
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  customColorValue.textContent = customColorInput.value.toUpperCase();
+  customColorInput.oninput = () => {
+    customColorValue.textContent = customColorInput.value.toUpperCase();
+  };
+  customColorForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const color = customColorInput.value.toUpperCase();
+    customColorStatus.textContent = "Adding color...";
+    try {
+      const result = await updateProjectFavoriteColor(targetProject, color, true, true);
+      applyFavoriteResult(result, color);
+      customColorStatus.textContent = "";
+      showToast(`${color} added to project favorites.`);
+    } catch (error) {
+      customColorStatus.textContent = error.message;
+    }
+  };
+  renderFavoriteColors();
+
+  const slots = normalizeProjectSlots(targetProject);
+  const projectSlug = String(projectMeta?.slug || slugify(targetProject));
+  generatePanel.hidden = true;
+  generateButton.setAttribute("aria-expanded", "false");
+  projectSamplePrompts = Array.isArray(projectMeta?.samplePrompts) && projectMeta.samplePrompts.length
+    ? projectMeta.samplePrompts
+    : [
+        `/create-svg-asset\n\nProject: ${targetProject}\nDirectory: assets/svg/${projectSlug}/`,
+        `/create-svg-asset\n\nCreate a minimal geometric mark using the uploaded steering source material.\nBase idea: combine a strong silhouette with one distinctive cutout or negative-space detail.\n\nProject: ${targetProject}\nDirectory: assets/svg/${projectSlug}/`,
+        `/create-svg-asset\n\nCreate an expressive symbol using the uploaded steering source material.\nBase idea: translate the project's core purpose into a modular emblem that remains recognizable at favicon size.\n\nProject: ${targetProject}\nDirectory: assets/svg/${projectSlug}/`
+      ];
+  projectSamplePrompts = projectSamplePrompts.map((prompt) =>
+    normalizeProjectPrompt(prompt, targetProject, projectSlug)
+  );
+  activeProjectPromptIndex = 0;
+  renderActiveProjectPrompt();
+
+  const documentationLinks = [
+    [projectMeta?.documentation || `assets/svg/${projectSlug}/README.md`, "Project README"],
+    [".github/prompts/create-svg-asset.prompt.md", "Create SVG Asset prompt"],
+    [".github/skills/wm-asset-manifest-spec/SKILL.md", "Manifest specification"],
+    [".github/skills/wm-asset-authoring-workflow/SKILL.md", "Authoring workflow"]
+  ];
+  for (const [path, label] of documentationLinks) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = resolveAssetPath(path);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = label;
+    item.appendChild(link);
+    docsRoot.appendChild(item);
+  }
+  const hasSteer = steer.notes.length > 0 || steer.sources.length > 0;
+  emptyState.classList.toggle("is-hidden", hasSteer);
+
+  for (const slot of slots) {
+    const card = document.createElement("article");
+    card.className = "icon-slot-card";
+
+    const header = document.createElement("div");
+    header.className = "icon-slot-header";
+
+    const heading = document.createElement("h5");
+    heading.textContent = slot.title;
+
+    const usage = document.createElement("p");
+    usage.className = "icon-slot-usage";
+    usage.textContent = slot.usage;
+
+    const preview = resolveSlotPreview(slot);
+    const body = document.createElement("div");
+    body.className = "icon-slot-body";
+
+    if (preview.sourceType === "asset" || preview.sourceType === "src") {
+      const img = document.createElement("img");
+      img.className = "icon-slot-image";
+      img.src = preview.src;
+      img.alt = `${slot.title} preview`;
+
+      if (preview.href) {
+        const link = document.createElement("a");
+        link.href = preview.href;
+        link.className = "icon-slot-image-link";
+        link.appendChild(img);
+        body.appendChild(link);
+      } else {
+        body.appendChild(img);
+      }
+    } else if (preview.sourceType === "url") {
+      const link = document.createElement("a");
+      link.href = preview.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = preview.label;
+      body.appendChild(link);
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "icon-slot-empty";
+      empty.textContent = "No source assigned";
+      body.appendChild(empty);
+    }
+
+    if (slot.note) {
+      const note = document.createElement("p");
+      note.className = "icon-slot-note";
+      note.textContent = slot.note;
+      body.appendChild(note);
+    }
+
+    header.appendChild(heading);
+    header.appendChild(usage);
+    card.appendChild(header);
+    card.appendChild(body);
+    slotsGrid.appendChild(card);
+  }
+
+  for (const note of steer.notes) {
+    const item = document.createElement("li");
+    item.textContent = note;
+    notesList.appendChild(item);
+  }
+
+  for (const source of steer.sources) {
+    const card = document.createElement("article");
+    card.className = "source-material-card";
+
+    const titleEl = document.createElement("h5");
+    titleEl.textContent = String(source.title || "Source Material");
+
+    const kind = String(source.kind || "text").toLowerCase();
+
+    if (kind === "image") {
+      const sourceHref = sourceRouteHref(targetProject, source.src);
+      const sourceDeepLink = new URL(sourceHref, window.location.href).href;
+      const titleLink = document.createElement("a");
+      titleLink.href = sourceHref;
+      titleLink.textContent = titleEl.textContent;
+      titleEl.replaceChildren(titleLink);
+      const header = document.createElement("div");
+      header.className = "source-material-header";
+      const actions = document.createElement("div");
+      actions.className = "source-material-actions";
+      const linkButton = document.createElement("button");
+      linkButton.type = "button";
+      linkButton.className = "source-material-action";
+      linkButton.setAttribute("aria-label", `Copy deep link for ${titleEl.textContent}`);
+      linkButton.title = "Copy deep link";
+      linkButton.innerHTML = '<i data-lucide="link" aria-hidden="true"></i>';
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "source-material-action";
+      editButton.setAttribute("aria-label", `Rename ${titleEl.textContent}`);
+      editButton.title = "Rename image";
+      editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "source-material-action source-material-delete";
+      deleteButton.setAttribute("aria-label", `Remove ${titleEl.textContent}`);
+      deleteButton.title = "Remove image";
+      deleteButton.innerHTML = '<i data-lucide="trash-2" aria-hidden="true"></i>';
+      actions.append(linkButton, editButton, deleteButton);
+      header.append(titleEl, actions);
+      card.appendChild(header);
+
+      const img = document.createElement("img");
+      img.className = "source-material-image";
+      img.src = resolveAssetPath(source.src || source.url || "");
+      img.alt = String(source.alt || source.title || "Source image");
+      const imageLink = document.createElement("a");
+      imageLink.className = "source-material-image-link";
+      imageLink.href = sourceHref;
+      imageLink.setAttribute("aria-label", `Open ${titleEl.textContent} source page`);
+      imageLink.appendChild(img);
+      card.appendChild(imageLink);
+
+      const palette = Array.isArray(source.palette) ? source.palette.slice(0, 10) : [];
+      if (palette.length) {
+        const paletteRegion = document.createElement("div");
+        paletteRegion.className = "source-material-palette";
+        const paletteLabel = document.createElement("p");
+        paletteLabel.className = "source-material-palette-label";
+        paletteLabel.textContent = "Project favorites";
+        const swatches = document.createElement("div");
+        swatches.className = "source-material-swatches";
+
+        for (const entry of palette) {
+          const color = String(entry.hex || "").toUpperCase();
+          if (!/^#[0-9A-F]{6}$/.test(color)) continue;
+          const percentage = Number(entry.percentage || 0);
+          const selected = steer.favoriteColors.includes(color);
+          const swatch = document.createElement("button");
+          swatch.type = "button";
+          swatch.className = "source-material-swatch";
+          swatch.dataset.color = color;
+          swatch.style.setProperty("--swatch-color", color);
+          swatch.setAttribute("aria-pressed", String(selected));
+          swatch.setAttribute("aria-label", `${selected ? "Remove" : "Select"} ${color} as a project favorite; ${percentage}% of image`);
+          swatch.title = color;
+          swatch.innerHTML = '<i data-lucide="check" aria-hidden="true"></i>';
+          swatch.addEventListener("click", async () => {
+            const shouldSelect = swatch.getAttribute("aria-pressed") !== "true";
+            swatch.disabled = true;
+            try {
+              const result = await updateProjectFavoriteColor(targetProject, color, shouldSelect);
+              applyFavoriteResult(result, color);
+              showToast(shouldSelect ? `${color} added to project favorites.` : `${color} removed from project favorites.`);
+            } catch (error) {
+              showToast(error.message);
+            } finally {
+              swatch.disabled = false;
+            }
+          });
+          swatches.appendChild(swatch);
+        }
+
+        paletteRegion.append(paletteLabel, swatches);
+        card.appendChild(paletteRegion);
+      }
+
+      const editor = document.createElement("form");
+      editor.className = "source-material-editor";
+      editor.hidden = true;
+      const input = document.createElement("input");
+      input.className = "wm-input source-material-name-input";
+      input.value = String(source.title || "");
+      input.setAttribute("aria-label", "Image name");
+      const save = document.createElement("button");
+      save.type = "submit";
+      save.className = "btn btn-primary btn-sm";
+      save.textContent = "Save";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn btn-sm";
+      cancel.textContent = "Cancel";
+      const status = document.createElement("p");
+      status.className = "source-material-status";
+      status.setAttribute("aria-live", "polite");
+      editor.append(input, save, cancel);
+      card.append(editor, status);
+
+      const mutateSource = async (action, filename) => {
+        const response = await fetch("/~grounding-source", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project: targetProject, source: source.src, action, filename })
+        });
+        const result = await response.json();
+        if (!response.ok || result.error) throw new Error(result.error || "Image update failed");
+        window.location.reload();
+      };
+
+      editButton.addEventListener("click", () => {
+        editor.hidden = false;
+        input.focus();
+        input.select();
+      });
+      cancel.addEventListener("click", () => {
+        editor.hidden = true;
+        status.textContent = "";
+      });
+      linkButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(sourceDeepLink);
+          status.textContent = "";
+          showToast("Link copied.");
+        } catch {
+          status.textContent = "Copy failed. Open the image and copy its URL manually.";
+        }
+      });
+      editor.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        status.textContent = "Renaming...";
+        try { await mutateSource("rename", input.value); } catch (error) { status.textContent = error.message; }
+      });
+      deleteButton.addEventListener("click", async () => {
+        if (deleteButton.dataset.confirm !== "true") {
+          deleteButton.dataset.confirm = "true";
+          deleteButton.classList.add("is-confirming");
+          deleteButton.setAttribute("aria-label", `Confirm removal of ${titleEl.textContent}`);
+          deleteButton.title = "Click again to confirm removal";
+          window.setTimeout(() => {
+            deleteButton.dataset.confirm = "false";
+            deleteButton.classList.remove("is-confirming");
+            deleteButton.setAttribute("aria-label", `Remove ${titleEl.textContent}`);
+            deleteButton.title = "Remove image";
+          }, 4000);
+          return;
+        }
+        deleteButton.disabled = true;
+        try { await mutateSource("delete"); } catch (error) {
+          deleteButton.disabled = false;
+          status.textContent = error.message;
+        }
+      });
+    } else if (kind === "url") {
+      card.appendChild(titleEl);
+      const link = document.createElement("a");
+      link.href = String(source.url || "");
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = String(source.url || "Open URL");
+      card.appendChild(link);
+    } else if (kind === "file") {
+      card.appendChild(titleEl);
+      const link = document.createElement("a");
+      link.href = resolveAssetPath(source.path || source.url || "");
+      link.textContent = String(source.path || source.url || "Open file");
+      card.appendChild(link);
+    } else {
+      card.appendChild(titleEl);
+      const body = document.createElement("p");
+      body.textContent = String(source.text || "");
+      card.appendChild(body);
+    }
+
+    sourcesGrid.appendChild(card);
+  }
+
+  if (typeof lucide !== "undefined") lucide.createIcons();
+
+  for (const asset of projectAssets) {
+    const tile = document.createElement("article");
+    tile.className = "asset-tile";
+    const assetHref = `#asset/${encodeURIComponent(asset.id)}`;
+
+    const frame = document.createElement("div");
+    frame.className = "logo-frame";
+
+    const img = document.createElement("img");
+    img.src = `../${asset.source}`;
+    img.alt = asset.label;
+
+    const imageLink = document.createElement("a");
+    imageLink.className = "asset-preview-link";
+    imageLink.href = assetHref;
+    imageLink.appendChild(frame);
+
+    const assetTitle = document.createElement("h3");
+    assetTitle.textContent = asset.label;
+
+    const titleLink = document.createElement("a");
+    titleLink.className = "asset-title-link";
+    titleLink.href = assetHref;
+    titleLink.appendChild(assetTitle);
+
+    const colorsRoot = document.createElement("div");
+    colorsRoot.className = "asset-colors";
+    colorsRoot.setAttribute("aria-label", `Colors used in ${asset.label}`);
+    const colorsLabel = document.createElement("span");
+    colorsLabel.className = "asset-colors-label";
+    colorsLabel.textContent = "Colors";
+    const colorsList = document.createElement("div");
+    colorsList.className = "asset-colors-list";
+    colorsList.textContent = "Loading...";
+    colorsRoot.appendChild(colorsLabel);
+    colorsRoot.appendChild(colorsList);
+
+    renderAssetColorList(colorsList, asset);
+
+    const idText = document.createElement("p");
+    idText.textContent = asset.id;
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "asset-copy-link btn btn-sm";
+    copyButton.setAttribute("aria-label", `Copy ${asset.label} deep link`);
+    copyButton.title = "Copy asset deep link";
+    copyButton.innerHTML = '<i data-lucide="copy" aria-hidden="true"></i>';
+    copyButton.addEventListener("click", async () => {
+      const deepLink = new URL(window.location.href);
+      deepLink.hash = assetHref.slice(1);
+      try {
+        await navigator.clipboard.writeText(deepLink.href);
+        showToast("Asset link copied.");
+      } catch {
+        showToast("Unable to copy asset link.");
+      }
+    });
+
+    const footer = document.createElement("div");
+    footer.className = "asset-tile-footer";
+    footer.appendChild(idText);
+    footer.appendChild(copyButton);
+
+    frame.appendChild(img);
+    tile.appendChild(imageLink);
+    tile.appendChild(titleLink);
+    tile.appendChild(colorsRoot);
+    tile.appendChild(footer);
+    grid.appendChild(tile);
+  }
+
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+function wireGenerateAssetPrompt() {
+  const button = document.getElementById("project-generate-new");
+  const panel = document.getElementById("project-generate-panel");
+  const copyButton = document.getElementById("project-prompt-copy");
+  if (!button || !panel || !copyButton) return;
+
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const section = button.closest(".project-assets-section-shell")?.querySelector("details");
+    const wasSectionOpen = section?.open ?? true;
+    if (section) section.open = true;
+    if (wasSectionOpen || panel.hidden) panel.hidden = !panel.hidden;
+    button.setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) copyButton.focus();
+  });
+}
+
+function wireProjectRename() {
+  const button = document.getElementById("project-rename-button");
+  const form = document.getElementById("project-rename-form");
+  const input = document.getElementById("project-rename-input");
+  const cancel = document.getElementById("project-rename-cancel");
+  const status = document.getElementById("project-rename-status");
+  if (!button || !form || !input || !cancel || !status) return;
+
+  button.addEventListener("click", () => {
+    form.hidden = false;
+    input.focus();
+    input.select();
+  });
+  cancel.addEventListener("click", () => {
+    form.hidden = true;
+    status.textContent = "";
+    input.value = form.dataset.project || "";
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const nextName = input.value.trim();
+    status.textContent = "Renaming...";
+    try {
+      const response = await fetch("/~project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: form.dataset.project, name: nextName })
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result.error || "Project rename failed");
+      window.location.hash = projectRouteHref(result.name).slice(1);
+      window.location.reload();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+
+function wireProjectPromptCarousel() {
+  const previous = document.getElementById("project-prompt-previous");
+  const next = document.getElementById("project-prompt-next");
+  const copy = document.getElementById("project-prompt-copy");
+  const status = document.getElementById("project-prompt-copy-status");
+  if (!previous || !next || !copy || !status) return;
+
+  const move = (offset) => {
+    if (!projectSamplePrompts.length) return;
+    activeProjectPromptIndex = (activeProjectPromptIndex + offset + projectSamplePrompts.length) % projectSamplePrompts.length;
+    status.textContent = "";
+    renderActiveProjectPrompt();
+  };
+
+  previous.addEventListener("click", () => move(-1));
+  next.addEventListener("click", () => move(1));
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(projectSamplePrompts[activeProjectPromptIndex] || "");
+      status.textContent = "Prompt copied.";
+    } catch {
+      status.textContent = "Copy failed. Select the prompt and copy it manually.";
+    }
+  });
+}
+
+function wireSourceReferenceCopy() {
+  const button = document.getElementById("source-copy-reference");
+  const reference = document.getElementById("source-prompt-reference");
+  const status = document.getElementById("source-copy-status");
+  if (!button || !reference || !status) return;
+
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(reference.textContent || "");
+      status.textContent = "Reference copied.";
+    } catch {
+      status.textContent = "Copy failed. Select the reference and copy it manually.";
+    }
+  });
+}
+
+function wireGroundingDropZone() {
+  const dropzone = document.getElementById("project-grounding-dropzone");
+  const input = document.getElementById("project-grounding-input");
+  const status = document.getElementById("project-grounding-status");
+  if (!dropzone || !input || !status) return;
+
+  const uploadFiles = async (files) => {
+    const project = getRouteFromHash().projectName;
+    if (!project || files.length === 0) return;
+    status.textContent = `Uploading ${files.length} image${files.length === 1 ? "" : "s"}...`;
+
+    try {
+      for (const file of files) {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error || new Error("Could not read image"));
+          reader.readAsDataURL(file);
+        });
+        const response = await fetch("/~grounding-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project, filename: file.name, dataUrl })
+        });
+        const result = await response.json();
+        if (!response.ok || result.error) throw new Error(result.error || "Upload failed");
+      }
+      status.textContent = "Steering source material uploaded. Refreshing project sources...";
+      window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  };
+
+  input.addEventListener("change", () => uploadFiles(Array.from(input.files || [])));
+  for (const eventName of ["dragenter", "dragover"]) {
+    dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.add("is-dragging");
+    });
+  }
+  for (const eventName of ["dragleave", "drop"]) {
+    dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.remove("is-dragging");
+    });
+  }
+  dropzone.addEventListener("drop", (event) => uploadFiles(Array.from(event.dataTransfer?.files || [])));
+}
+
+function renderCurrentRoute() {
+  const route = getRouteFromHash();
+  setMainViewVisibility(route);
+  if (route.page === "asset") {
+    renderAssetDetail(route.assetId);
+    return;
+  }
+
+  if (route.page === "source") {
+    renderSourceDetail(route.projectName, route.sourcePath);
+    return;
+  }
+
+  if (route.page === "project") {
+    renderProjectDetail(route.projectName);
+  }
+}
+
+async function renderDiagrams() {
+  const grid = document.getElementById("diagram-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+
+  const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "default";
+  mermaid.initialize({ startOnLoad: false, securityLevel: "loose", theme });
+
+  for (const item of diagramData) {
+    const tile = document.createElement("article");
+    tile.className = "asset-tile";
+
+    const title = document.createElement("h3");
+    title.textContent = item.title;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "mermaid";
+    wrapper.textContent = item.code;
+
+    tile.appendChild(title);
+    tile.appendChild(wrapper);
+    grid.appendChild(tile);
+  }
+
+  await mermaid.run({ querySelector: ".mermaid" });
+}
+
+function slugify(value) {
+  return String(value).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function wireStickyHeaderOffset() {
+  const topbar = document.querySelector(".docs-topbar");
+  const detailHeaders = document.querySelectorAll("#project-detail > .project-detail-header, #asset-detail > .project-detail-header");
+  const assetHeader = document.querySelector("#asset-detail > .project-detail-header");
+  if (!topbar || !detailHeaders.length) return;
+
+  const updateStickyState = () => {
+    const topbarHeight = topbar.getBoundingClientRect().height;
+    document.documentElement.style.setProperty("--preview-topbar-height", `${topbarHeight}px`);
+    if (assetHeader) {
+      document.documentElement.style.setProperty("--asset-detail-header-height", `${assetHeader.getBoundingClientRect().height}px`);
+    }
+    for (const header of detailHeaders) {
+      const isVisible = header.getClientRects().length > 0;
+      const isStuck = isVisible && window.scrollY > 0 && header.getBoundingClientRect().top <= topbarHeight + 1;
+      header.classList.toggle("is-stuck", isStuck);
+    }
+  };
+  updateStickyState();
+  new ResizeObserver(updateStickyState).observe(topbar);
+  if (assetHeader) new ResizeObserver(updateStickyState).observe(assetHeader);
+  window.addEventListener("scroll", updateStickyState, { passive: true });
+  window.addEventListener("hashchange", () => window.requestAnimationFrame(updateStickyState));
+}
+
+function wireNewProjectModal() {
+  const btn = document.getElementById("new-project-btn");
+  const modal = document.getElementById("new-project-modal");
+  const formView = document.getElementById("np-form-view");
+  const successView = document.getElementById("np-success-view");
+  const form = document.getElementById("np-form");
+  const nameInput = document.getElementById("np-name");
+  const slugInput = document.getElementById("np-slug");
+  const errorEl = document.getElementById("np-error");
+  if (!btn || !modal || !form) return;
+
+  const openModal = () => {
+    formView.hidden = false;
+    successView.hidden = true;
+    form.reset();
+    errorEl.hidden = true;
+    modal.hidden = false;
+    nameInput.focus();
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  const closeModal = () => { modal.hidden = true; };
+
+  btn.addEventListener("click", openModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+  modal.querySelectorAll(".np-close, .np-cancel").forEach((el) =>
+    el.addEventListener("click", closeModal)
+  );
+  modal.querySelector(".np-done")?.addEventListener("click", (event) => {
+    const project = event.currentTarget.dataset.project;
+    closeModal();
+    if (project) window.location.hash = projectRouteHref(project).slice(1);
+    window.location.reload();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) closeModal();
+  });
+
+  // Auto-derive slug from name
+  nameInput.addEventListener("input", () => {
+    slugInput.value = slugify(nameInput.value);
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.hidden = true;
+    const name = nameInput.value.trim();
+    const slug = slugify(slugInput.value || name);
+    if (!name || !slug) {
+      errorEl.textContent = "Project name and slug are required.";
+      errorEl.hidden = false;
+      return;
+    }
+
+    const submitBtn = form.querySelector("[type=submit]");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Creating…";
+
+    try {
+      const response = await fetch("/~scaffold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, slug }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result.error || "Scaffold failed");
+
+      // Show success view
+      formView.hidden = true;
+      successView.hidden = false;
+      document.getElementById("np-success-name").textContent = name;
+      modal.querySelector(".np-done").dataset.project = name;
+
+      const createdItems = document.getElementById("np-created-items");
+      createdItems.innerHTML = [
+        result.alreadyExists
+          ? `<li><i data-lucide="info" aria-hidden="true"></i> Project entry already existed in manifest (skipped)</li>`
+          : `<li><i data-lucide="check" aria-hidden="true"></i> Added <code>${name}</code> to <code>manifests/assets.json</code></li>`,
+        `<li><i data-lucide="check" aria-hidden="true"></i> Created <code>${result.svgDir}</code></li>`,
+        `<li><i data-lucide="check" aria-hidden="true"></i> Created <code>${result.groundingDir}</code></li>`,
+        `<li><i data-lucide="check" aria-hidden="true"></i> Created <code>${result.documentation}</code></li>`,
+      ].join("");
+
+      document.getElementById("np-prompt-snippet").textContent =
+        `/create-svg-asset\n\nProject: ${name}\nDirectory: ${result.svgDir}`;
+
+      const resourceList = document.getElementById("np-resource-list");
+      resourceList.innerHTML = [
+        `<li><a href="http://localhost:4178/manifests/assets.json" target="_blank" rel="noopener">manifests/assets.json</a></li>`,
+        `<li><a href="http://localhost:4178/.github/prompts/create-svg-asset.prompt.md" target="_blank" rel="noopener">.github/prompts/create-svg-asset.prompt.md</a></li>`,
+        `<li><a href="http://localhost:4178/.github/skills/wm-asset-manifest-spec/SKILL.md" target="_blank" rel="noopener">.github/skills/wm-asset-manifest-spec/SKILL.md</a></li>`,
+        `<li><a href="http://localhost:4178/.github/skills/wm-asset-authoring-workflow/SKILL.md" target="_blank" rel="noopener">.github/skills/wm-asset-authoring-workflow/SKILL.md</a></li>`,
+      ].join("");
+
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Create Project";
+    }
+  });
+}
+
+async function init() {
+  applyThemeFromQuery();
+  wireThemeToggle();
+  wireTopNav();
+  wireStickyHeaderOffset();
+  wireNewProjectModal();
+  wireGroundingDropZone();
+  wireGenerateAssetPrompt();
+  wireProjectRename();
+  wireProjectPromptCarousel();
+  wireSourceReferenceCopy();
+
+  const [assetManifest, specs] = await Promise.all([
+    loadJson("../manifests/assets.json"),
+    loadJson("./spec-index.json")
+  ]);
+
+  diagramData = specs.diagrams ?? [];
+  assetData = assetManifest.assets ?? [];
+  assetById = new Map(assetData.map((asset) => [asset.id, asset]));
+  const projectSteer = Array.isArray(assetManifest.projects) ? assetManifest.projects : [];
+  projectMetaByName = new Map(
+    projectSteer
+      .filter((project) => project && project.name)
+      .map((project) => [String(project.name).trim(), project])
+  );
+  renderLogos(assetData);
+  await renderDiagrams();
+
+  renderCurrentRoute();
+  window.addEventListener("hashchange", renderCurrentRoute);
+}
+
+init().catch((error) => {
+  console.error(error);
+  const content = document.querySelector(".preview-content");
+  if (content) {
+    content.innerHTML = `<section class="card"><div class="card-header"><h3>Preview failed</h3></div><div class="card-body"><p>${error.message}</p></div></section>`;
+  }
+});

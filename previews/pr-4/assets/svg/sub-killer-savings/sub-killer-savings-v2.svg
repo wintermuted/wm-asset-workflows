@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Sub Killer Savings V2</title>
+  <desc id="desc">Coin-forward variant with dollar sign centered in canceled cycle on green background.</desc>
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#22c55e"/>
+
+  <circle cx="64" cy="48" r="24" fill="#14532d"/>
+  <path d="M50 46a15 15 0 0 1 24-8" fill="none" stroke="#dcfce7" stroke-width="6" stroke-linecap="round"/>
+  <path d="M76 38l-8 1 4-6" fill="none" stroke="#dcfce7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M78 54a15 15 0 0 1-24 8" fill="none" stroke="#dcfce7" stroke-width="6" stroke-linecap="round"/>
+  <path d="M52 62l8-1-4 6" fill="none" stroke="#dcfce7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 60l32-20" fill="none" stroke="#fb923c" stroke-width="6" stroke-linecap="round"/>
+
+  <path d="M64 40v16" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M69 43c-2-2-8-2-10 1-1 2 1 4 4 5 4 1 7 3 5 5-2 2-7 2-10 0" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+
+  <circle cx="64" cy="88" r="26" fill="#166534"/>
+  <circle cx="64" cy="88" r="18" fill="#34d399"/>
+  <ellipse cx="64" cy="110" rx="24" ry="6" fill="#14532d" opacity="0.65"/>
+</svg>

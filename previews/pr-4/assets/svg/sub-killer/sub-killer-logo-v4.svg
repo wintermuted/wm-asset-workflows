@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Sub Killer Logo V4</title>
+  <desc id="desc">Target ring around a canceled subscription chip.</desc>
+  <rect width="128" height="128" rx="28" fill="#101828"/>
+  <circle cx="64" cy="64" r="38" fill="#5EEAD4"/>
+  <circle cx="64" cy="64" r="28" fill="#101828"/>
+  <rect x="47" y="50" width="34" height="24" rx="6" fill="#F8FAFC"/>
+  <rect x="51" y="58" width="26" height="3" rx="1.5" fill="#818CF8"/>
+  <path fill="#C084FC" d="M36 90L86 40L92 46L42 96Z"/>
+  <path fill="#C084FC" d="M84 38L92 30L98 36L90 44Z"/>
+</svg>
