@@ -543,6 +543,12 @@
   stroke-linejoin: round !important;
   vector-effect: non-scaling-stroke;
   paint-order: stroke fill;
+  cursor: grab;
+  touch-action: none;
+}
+
+.asset-primary-svg .is-color-highlighted:active {
+  cursor: grabbing;
 }
 
 .asset-primary-svg :is(path, rect, circle, ellipse, line, polyline, polygon) {

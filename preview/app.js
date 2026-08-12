@@ -129,6 +129,10 @@ const assetPendingGroupFocus = new Map();
 // Tracks an element just created via "Add element" (asset id -> element number),
 // so the panel can select/highlight it once rendered.
 const assetPendingElementSelection = new Map();
+// Cleans up the keyboard/drag listeners wired for the previously rendered
+// asset detail view, so re-rendering (navigating between assets) doesn't
+// stack up duplicate global listeners.
+let activePrimaryLayerInteractionCleanup = null;
 const NEW_ELEMENT_SHAPES = [
   { value: "rect", label: "Rectangle" },
   { value: "circle", label: "Circle" },
@@ -680,6 +684,93 @@ function applyAssetLayerEdits(svg, assetId) {
   }
 }
 
+// Wires up arrow-key nudging and mouse dragging for the currently selected
+// element within the primary preview. `getSelectedLayerNumber` is called on
+// every keydown/pointerdown so the interaction always targets whichever
+// element is selected in the elements list right now. Returns a cleanup
+// function that removes all listeners; callers must invoke the previous
+// cleanup before wiring up a new asset (renderAssetDetail re-runs per view).
+function enablePrimaryLayerInteraction(root, asset, getSelectedLayerNumber) {
+  const getGraphics = () => {
+    const svg = root.querySelector("svg");
+    return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
+  };
+  const isTypingTarget = (element) => {
+    if (!element) return false;
+    if (element.isContentEditable) return true;
+    return /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName);
+  };
+  const moveSelectedLayer = (layerNumber, offsetX, offsetY) => {
+    updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+  };
+
+  const onKeydown = (event) => {
+    const layerNumber = getSelectedLayerNumber();
+    if (layerNumber === null || layerNumber === undefined || isTypingTarget(document.activeElement)) return;
+    const deltas = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    const delta = deltas[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 10 : 1;
+    const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    const offsetX = (existing?.offsetX || 0) + delta[0] * step;
+    const offsetY = (existing?.offsetY || 0) + delta[1] * step;
+    moveSelectedLayer(layerNumber, offsetX, offsetY);
+  };
+
+  let dragState = null;
+  const onPointerDown = (event) => {
+    const layerNumber = getSelectedLayerNumber();
+    if (layerNumber === null || layerNumber === undefined) return;
+    const graphics = getGraphics();
+    const target = graphics[layerNumber - 1];
+    if (!target || (event.target !== target && !target.contains(event.target))) return;
+    const svg = root.querySelector("svg");
+    const viewBox = svg?.viewBox?.baseVal;
+    const bounds = svg?.getBoundingClientRect();
+    const scaleX = viewBox && bounds?.width ? viewBox.width / bounds.width : 1;
+    const scaleY = viewBox && bounds?.height ? viewBox.height / bounds.height : 1;
+    const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    dragState = {
+      layerNumber,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseOffsetX: existing?.offsetX || 0,
+      baseOffsetY: existing?.offsetY || 0,
+      scaleX,
+      scaleY
+    };
+    target.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  };
+  const onPointerMove = (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const offsetX = dragState.baseOffsetX + (event.clientX - dragState.startX) * dragState.scaleX;
+    const offsetY = dragState.baseOffsetY + (event.clientY - dragState.startY) * dragState.scaleY;
+    moveSelectedLayer(dragState.layerNumber, offsetX, offsetY);
+  };
+  const onPointerUp = (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    dragState = null;
+  };
+
+  window.addEventListener("keydown", onKeydown);
+  root.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+
+  return () => {
+    window.removeEventListener("keydown", onKeydown);
+    root.removeEventListener("pointerdown", onPointerDown);
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
+  };
+}
+
 function createSteppedNumberField({ value, step, ariaLabel, onChange }) {
   const field = document.createElement("span");
   field.className = "asset-layer-attr-field";
@@ -884,7 +975,7 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
   return { status, combineButton, clearButton, shapeSelect };
 }
 
-function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit) {
+function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit, onSelect) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
   editorPanel.hidden = true;
@@ -898,6 +989,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     const pendingSelection = assetPendingElementSelection.get(asset.id);
     if (pendingSelection !== undefined) assetPendingElementSelection.delete(asset.id);
     let selectedLayerNumber = pendingSelection ?? null;
+    onSelect?.(selectedLayerNumber);
     let hoveredLayerNumber = null;
     let focusedLayerNumber = null;
     const layerItems = new Map();
@@ -962,6 +1054,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
         });
         toggleSelection = () => {
           selectedLayerNumber = selectedLayerNumber === layer.number ? null : layer.number;
+          onSelect?.(selectedLayerNumber);
           syncHighlight();
         };
         item.addEventListener("click", toggleSelection);
@@ -1783,6 +1876,8 @@ function renderAssetDetail(assetId) {
   const asset = assetById.get(assetId);
 
   if (!asset) {
+    activePrimaryLayerInteractionCleanup?.();
+    activePrimaryLayerInteractionCleanup = null;
     title.textContent = "Asset not found";
     meta.textContent = `No logo or glyph exists for id: ${assetId}`;
     deepLink.href = window.location.href;
@@ -1808,6 +1903,13 @@ function renderAssetDetail(assetId) {
   layersSection.hidden = false;
   sizesSection.hidden = false;
   renderAssetPrimarySvg(primarySvg, asset);
+  activePrimaryLayerInteractionCleanup?.();
+  let selectedLayerNumberForPrimary = null;
+  activePrimaryLayerInteractionCleanup = enablePrimaryLayerInteraction(
+    primarySvg,
+    asset,
+    () => selectedLayerNumberForPrimary
+  );
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
     const regions = setPrimarySvgColorHighlight(primarySvg, color, highlighted);
     highlightStatus.textContent = highlighted && regions.length
@@ -1839,7 +1941,8 @@ function renderAssetDetail(assetId) {
     layerActions,
     asset,
     (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
-    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id)
+    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
+    (layerNumber) => { selectedLayerNumberForPrimary = layerNumber; }
   );
 
   for (const size of uniqueSortedSizes(asset).filter((value) => value !== 512)) {
