@@ -684,13 +684,42 @@ function applyAssetLayerEdits(svg, assetId) {
   }
 }
 
-// Wires up arrow-key nudging and mouse dragging for the currently selected
-// element within the primary preview. `getSelectedLayerNumber` is called on
-// every keydown/pointerdown so the interaction always targets whichever
-// element is selected in the elements list right now. Returns a cleanup
-// function that removes all listeners; callers must invoke the previous
-// cleanup before wiring up a new asset (renderAssetDetail re-runs per view).
-function enablePrimaryLayerInteraction(root, asset, getSelectedLayerNumber) {
+// Positions the primary preview tooltip next to `element`, anchoring its
+// top-left corner at the element's bottom-right corner (with a small gap),
+// flipping to anchor its bottom-right corner at the element's top-left
+// corner when the default placement would overflow the container (i.e. the
+// element sits too close to the artboard's southeast corner).
+function positionPrimaryTooltip(tooltip, container, element) {
+  const containerRect = container.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  const gap = 8;
+  const relLeft = elementRect.left - containerRect.left;
+  const relTop = elementRect.top - containerRect.top;
+  const relRight = elementRect.right - containerRect.left;
+  const relBottom = elementRect.bottom - containerRect.top;
+  const tooltipWidth = tooltip.offsetWidth;
+  const tooltipHeight = tooltip.offsetHeight;
+
+  let left = relRight + gap;
+  let top = relBottom + gap;
+  if (left + tooltipWidth > containerRect.width || top + tooltipHeight > containerRect.height) {
+    left = relLeft - gap - tooltipWidth;
+    top = relTop - gap - tooltipHeight;
+  }
+  left = Math.max(4, Math.min(left, containerRect.width - tooltipWidth - 4));
+  top = Math.max(4, Math.min(top, containerRect.height - tooltipHeight - 4));
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+// Wires up hover/selection sync and interaction between the primary preview
+// canvas and the elements panel, plus a live-updating position tooltip for
+// the selected element. `layersController` is the object returned by
+// renderAssetLayers, exposing setHoveredLayer/clearHoveredLayer/selectLayer/
+// getSelectedLayer so both surfaces (canvas + panel) stay in sync. Returns
+// `{ updateTooltip, cleanup }`; callers must invoke the previous cleanup
+// before wiring up a new asset (renderAssetDetail re-runs per view).
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, layersController) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
@@ -700,13 +729,41 @@ function enablePrimaryLayerInteraction(root, asset, getSelectedLayerNumber) {
     if (element.isContentEditable) return true;
     return /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName);
   };
+
+  const updateTooltip = (layerNumber) => {
+    if (!tooltip) return;
+    if (layerNumber === null || layerNumber === undefined) {
+      tooltip.hidden = true;
+      return;
+    }
+    const element = getGraphics()[layerNumber - 1];
+    if (!element || !element.isConnected) {
+      tooltip.hidden = true;
+      return;
+    }
+    const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    let bbox = { width: 0, height: 0 };
+    try { bbox = element.getBBox(); } catch { /* element may not be renderable yet */ }
+    tooltip.replaceChildren();
+    const title = document.createElement("strong");
+    title.textContent = `Element ${layerNumber} · ${element.localName}`;
+    const position = document.createElement("span");
+    position.textContent = `x ${Math.round(edit?.offsetX || 0)}, y ${Math.round(edit?.offsetY || 0)}`;
+    const size = document.createElement("span");
+    size.textContent = `${Math.round(bbox.width)} × ${Math.round(bbox.height)}`;
+    tooltip.append(title, position, size);
+    tooltip.hidden = false;
+    positionPrimaryTooltip(tooltip, previewContainer, element);
+  };
+
   const moveSelectedLayer = (layerNumber, offsetX, offsetY) => {
     updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    updateTooltip(layerNumber);
   };
 
   const onKeydown = (event) => {
-    const layerNumber = getSelectedLayerNumber();
+    const layerNumber = layersController.getSelectedLayer();
     if (layerNumber === null || layerNumber === undefined || isTypingTarget(document.activeElement)) return;
     const deltas = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
     const delta = deltas[event.key];
@@ -719,55 +776,100 @@ function enablePrimaryLayerInteraction(root, asset, getSelectedLayerNumber) {
     moveSelectedLayer(layerNumber, offsetX, offsetY);
   };
 
+  const onPointerOver = (event) => {
+    const idx = getGraphics().indexOf(event.target);
+    if (idx === -1) return;
+    layersController.setHoveredLayer(idx + 1);
+  };
+  const onPointerOut = (event) => {
+    const idx = getGraphics().indexOf(event.target);
+    if (idx === -1) return;
+    layersController.clearHoveredLayer(idx + 1);
+  };
+
   let dragState = null;
+  let pendingSelectInfo = null;
   const onPointerDown = (event) => {
-    const layerNumber = getSelectedLayerNumber();
-    if (layerNumber === null || layerNumber === undefined) return;
     const graphics = getGraphics();
-    const target = graphics[layerNumber - 1];
-    if (!target || (event.target !== target && !target.contains(event.target))) return;
-    const svg = root.querySelector("svg");
-    const viewBox = svg?.viewBox?.baseVal;
-    const bounds = svg?.getBoundingClientRect();
-    const scaleX = viewBox && bounds?.width ? viewBox.width / bounds.width : 1;
-    const scaleY = viewBox && bounds?.height ? viewBox.height / bounds.height : 1;
-    const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
-    dragState = {
-      layerNumber,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      baseOffsetX: existing?.offsetX || 0,
-      baseOffsetY: existing?.offsetY || 0,
-      scaleX,
-      scaleY
-    };
-    target.setPointerCapture?.(event.pointerId);
+    const idx = graphics.indexOf(event.target);
+    if (idx === -1) return;
+    const layerNumber = idx + 1;
+    const selectedLayerNumber = layersController.getSelectedLayer();
+    if (layerNumber === selectedLayerNumber) {
+      const svg = root.querySelector("svg");
+      const viewBox = svg?.viewBox?.baseVal;
+      const bounds = svg?.getBoundingClientRect();
+      const scaleX = viewBox && bounds?.width ? viewBox.width / bounds.width : 1;
+      const scaleY = viewBox && bounds?.height ? viewBox.height / bounds.height : 1;
+      const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
+      dragState = {
+        layerNumber,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        baseOffsetX: existing?.offsetX || 0,
+        baseOffsetY: existing?.offsetY || 0,
+        scaleX,
+        scaleY,
+        moved: false
+      };
+      event.target.setPointerCapture?.(event.pointerId);
+    } else {
+      pendingSelectInfo = { layerNumber, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+    }
     event.preventDefault();
   };
   const onPointerMove = (event) => {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
-    const offsetX = dragState.baseOffsetX + (event.clientX - dragState.startX) * dragState.scaleX;
-    const offsetY = dragState.baseOffsetY + (event.clientY - dragState.startY) * dragState.scaleY;
+    const dx = event.clientX - dragState.startX;
+    const dy = event.clientY - dragState.startY;
+    if (Math.hypot(dx, dy) > 2) dragState.moved = true;
+    const offsetX = dragState.baseOffsetX + dx * dragState.scaleX;
+    const offsetY = dragState.baseOffsetY + dy * dragState.scaleY;
     moveSelectedLayer(dragState.layerNumber, offsetX, offsetY);
   };
   const onPointerUp = (event) => {
-    if (!dragState || event.pointerId !== dragState.pointerId) return;
-    dragState = null;
+    if (dragState && event.pointerId === dragState.pointerId) {
+      const { layerNumber, moved } = dragState;
+      dragState = null;
+      if (!moved) layersController.selectLayer(layerNumber);
+      return;
+    }
+    if (pendingSelectInfo && event.pointerId === pendingSelectInfo.pointerId) {
+      const { layerNumber, startX, startY } = pendingSelectInfo;
+      pendingSelectInfo = null;
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) < 3) {
+        layersController.selectLayer(layerNumber);
+      }
+    }
+  };
+  const onWindowResize = () => {
+    const layerNumber = layersController.getSelectedLayer();
+    if (layerNumber !== null && layerNumber !== undefined) updateTooltip(layerNumber);
   };
 
   window.addEventListener("keydown", onKeydown);
   root.addEventListener("pointerdown", onPointerDown);
+  root.addEventListener("pointerover", onPointerOver);
+  root.addEventListener("pointerout", onPointerOut);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
   window.addEventListener("pointercancel", onPointerUp);
+  window.addEventListener("resize", onWindowResize);
 
-  return () => {
-    window.removeEventListener("keydown", onKeydown);
-    root.removeEventListener("pointerdown", onPointerDown);
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", onPointerUp);
-    window.removeEventListener("pointercancel", onPointerUp);
+  return {
+    updateTooltip,
+    cleanup: () => {
+      window.removeEventListener("keydown", onKeydown);
+      root.removeEventListener("pointerdown", onPointerDown);
+      root.removeEventListener("pointerover", onPointerOver);
+      root.removeEventListener("pointerout", onPointerOut);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("resize", onWindowResize);
+      if (tooltip) tooltip.hidden = true;
+    }
   };
 }
 
@@ -983,6 +1085,15 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
   actionsBar.hidden = true;
   actionsBar.replaceChildren();
 
+  // Populated once asset data loads; exposes hover/selection sync methods so
+  // the primary preview canvas can stay in sync with this elements list.
+  const controller = {
+    setHoveredLayer: () => {},
+    clearHoveredLayer: () => {},
+    selectLayer: () => {},
+    getSelectedLayer: () => null
+  };
+
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
     root.textContent = "";
@@ -1041,6 +1152,18 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       }
       onHighlight(highlightedLayerNumber, highlightedLayerNumber !== null);
     };
+    const selectLayer = (layerNumber) => {
+      selectedLayerNumber = selectedLayerNumber === layerNumber ? null : layerNumber;
+      onSelect?.(selectedLayerNumber);
+      syncHighlight();
+    };
+    controller.setHoveredLayer = (layerNumber) => { hoveredLayerNumber = layerNumber; syncHighlight(); };
+    controller.clearHoveredLayer = (layerNumber) => {
+      if (hoveredLayerNumber === layerNumber) hoveredLayerNumber = null;
+      syncHighlight();
+    };
+    controller.selectLayer = selectLayer;
+    controller.getSelectedLayer = () => selectedLayerNumber;
     const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
     function renderElementRow(layer) {
       const item = document.createElement("li");
@@ -1052,11 +1175,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           if (hoveredLayerNumber === layer.number) hoveredLayerNumber = null;
           syncHighlight();
         });
-        toggleSelection = () => {
-          selectedLayerNumber = selectedLayerNumber === layer.number ? null : layer.number;
-          onSelect?.(selectedLayerNumber);
-          syncHighlight();
-        };
+        toggleSelection = () => selectLayer(layer.number);
         item.addEventListener("click", toggleSelection);
       }
       const number = document.createElement(onHighlight ? "button" : "span");
@@ -1512,6 +1631,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Element information unavailable";
   });
+
+  return controller;
 }
 
 function showToast(message) {
@@ -1844,6 +1965,7 @@ function renderAssetDetail(assetId) {
   const overview = document.getElementById("asset-detail-overview");
   const primaryPreview = document.getElementById("asset-primary-preview");
   const primarySvg = document.getElementById("asset-primary-svg");
+  const primaryTooltip = document.getElementById("asset-primary-tooltip");
   const colorsSection = document.getElementById("asset-detail-colors-section");
   const colorsList = document.getElementById("asset-detail-colors");
   const projectColorsList = document.getElementById("asset-project-colors");
@@ -1859,7 +1981,7 @@ function renderAssetDetail(assetId) {
   const layerActions = document.getElementById("asset-layer-actions");
   const sizesSection = document.getElementById("asset-sizes-section");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -1904,12 +2026,19 @@ function renderAssetDetail(assetId) {
   sizesSection.hidden = false;
   renderAssetPrimarySvg(primarySvg, asset);
   activePrimaryLayerInteractionCleanup?.();
-  let selectedLayerNumberForPrimary = null;
-  activePrimaryLayerInteractionCleanup = enablePrimaryLayerInteraction(
-    primarySvg,
+  const primaryInteractionState = { updateTooltip: () => {} };
+  const layersController = renderAssetLayers(
+    layersList,
+    layerEditorPanel,
+    layerActions,
     asset,
-    () => selectedLayerNumberForPrimary
+    (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
+    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
+    (layerNumber) => primaryInteractionState.updateTooltip(layerNumber)
   );
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, asset, layersController);
+  primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
+  activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
     const regions = setPrimarySvgColorHighlight(primarySvg, color, highlighted);
     highlightStatus.textContent = highlighted && regions.length
@@ -1935,15 +2064,6 @@ function renderAssetDetail(assetId) {
   };
   customColorInput.onchange = addCustomColor;
   renderAssetDiagnostics(diagnostics, asset);
-  renderAssetLayers(
-    layersList,
-    layerEditorPanel,
-    layerActions,
-    asset,
-    (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
-    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
-    (layerNumber) => { selectedLayerNumberForPrimary = layerNumber; }
-  );
 
   for (const size of uniqueSortedSizes(asset).filter((value) => value !== 512)) {
     const card = document.createElement("article");
