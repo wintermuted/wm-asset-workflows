@@ -589,15 +589,17 @@ function setPrimarySvgLayerHighlight(root, layerNumber, highlighted) {
   const graphics = Array.from(root.querySelectorAll("svg :is(path, rect, circle, ellipse, line, polyline, polygon)"));
   if (!highlighted) {
     for (const element of graphics) {
-      element.classList.remove("is-color-highlighted", "is-color-muted");
+      element.classList.remove("is-color-highlighted");
     }
     return;
   }
 
+  // Only outline the hovered/selected element - leave every other element's
+  // opacity untouched so the rest of the artwork stays visible at full
+  // strength instead of dimming while browsing layers.
   const selected = graphics[layerNumber - 1];
   for (const element of graphics) {
     element.classList.toggle("is-color-highlighted", element === selected);
-    element.classList.toggle("is-color-muted", element !== selected);
   }
 }
 
