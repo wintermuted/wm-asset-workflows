@@ -139,9 +139,9 @@ const assetCollapsedGroups = new Map();
 // stack up duplicate global listeners.
 let activePrimaryLayerInteractionCleanup = null;
 const NEW_ELEMENT_SHAPES = [
-  { value: "rect", label: "Rectangle" },
-  { value: "circle", label: "Circle" },
-  { value: "line", label: "Line" }
+  { value: "rect", label: "Rectangle", icon: "square" },
+  { value: "circle", label: "Circle", icon: "circle" },
+  { value: "line", label: "Line", icon: "minus" }
 ];
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
 const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
@@ -1712,24 +1712,47 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
   const addGroup = document.createElement("div");
   addGroup.className = "asset-layer-add-group";
 
-  const shapeSelect = document.createElement("select");
-  shapeSelect.className = "asset-layer-add-shape";
-  shapeSelect.setAttribute("aria-label", "New element shape");
-  for (const { value, label } of NEW_ELEMENT_SHAPES) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    shapeSelect.appendChild(option);
-  }
+  let selectedShape = NEW_ELEMENT_SHAPES[0].value;
+  const getShape = () => NEW_ELEMENT_SHAPES.find(({ value }) => value === selectedShape) || NEW_ELEMENT_SHAPES[0];
 
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.className = "asset-layer-add-button";
-  addButton.title = "Add a new element at the topmost layer";
-  addButton.innerHTML = '<i data-lucide="plus" aria-hidden="true"></i><span>Add element</span>';
-  addButton.addEventListener("click", () => onAdd(shapeSelect.value));
+  addButton.dataset.shape = selectedShape;
+  addButton.title = "Add a new rectangle at the topmost layer";
+  addButton.innerHTML = '<i data-lucide="square" aria-hidden="true"></i><span>Add element</span>';
+  addButton.addEventListener("click", () => onAdd(selectedShape));
 
-  addGroup.append(shapeSelect, addButton);
+  const shapeMenu = document.createElement("details");
+  shapeMenu.className = "asset-layer-shape-menu";
+  const shapeMenuToggle = document.createElement("summary");
+  shapeMenuToggle.setAttribute("aria-label", "Change element shape");
+  shapeMenuToggle.title = "Change element shape";
+  shapeMenuToggle.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+  const shapeMenuList = document.createElement("div");
+  shapeMenuList.className = "asset-layer-shape-options";
+  for (const { value, label, icon } of NEW_ELEMENT_SHAPES) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "asset-layer-shape-option";
+    option.dataset.shape = value;
+    option.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i><span>${label}</span>`;
+    option.addEventListener("click", () => {
+      selectedShape = value;
+      const shape = getShape();
+      addButton.dataset.shape = selectedShape;
+      addButton.title = `Add a new ${shape.label.toLowerCase()} at the topmost layer`;
+      const icon = document.createElement("i");
+      icon.dataset.lucide = shape.icon;
+      icon.setAttribute("aria-hidden", "true");
+      addButton.querySelector("[data-lucide], svg")?.replaceWith(icon);
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      shapeMenu.open = false;
+    });
+    shapeMenuList.appendChild(option);
+  }
+  shapeMenu.append(shapeMenuToggle, shapeMenuList);
+  addGroup.append(addButton, shapeMenu);
 
   const combineGroup = document.createElement("div");
   combineGroup.className = "asset-layer-combine-group";
@@ -1757,7 +1780,7 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
 
   combineGroup.append(status, clearButton, combineButton);
   actionsBar.append(addGroup, combineGroup);
-  return { status, combineButton, clearButton, shapeSelect };
+  return { status, combineButton, clearButton, getShape };
 }
 
 function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit, onSelect, onMultiSelectChange) {
@@ -2321,8 +2344,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           addToGroupButton.addEventListener("click", (event) => {
             event.stopPropagation();
             collapsedGroupsForAsset(asset.id).delete(node.element);
-            const shapeSelect = actionsBar.querySelector(".asset-layer-add-shape");
-            addElement(shapeSelect?.value || "rect", node.element);
+            const shape = actionsBar.querySelector(".asset-layer-add-button")?.dataset.shape || "rect";
+            addElement(shape, node.element);
           });
           header.appendChild(addToGroupButton);
           const nestedList = document.createElement("ol");
