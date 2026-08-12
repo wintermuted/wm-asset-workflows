@@ -809,25 +809,51 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
 
   const ROTATE_HANDLE_OFFSET = 24;
 
+  // Returns the union of every selected element's screen-space bounding box
+  // (relative to previewContainer), so the handles box expands to encompass
+  // the whole multi-selection rather than just the primary element.
+  const getSelectionScreenBox = (layerNumbers) => {
+    const containerRect = previewContainer.getBoundingClientRect();
+    const graphics = getGraphics();
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    let found = false;
+    for (const layerNumber of layerNumbers) {
+      const element = graphics[layerNumber - 1];
+      if (!element || !element.isConnected) continue;
+      const rect = element.getBoundingClientRect();
+      left = Math.min(left, rect.left);
+      top = Math.min(top, rect.top);
+      right = Math.max(right, rect.right);
+      bottom = Math.max(bottom, rect.bottom);
+      found = true;
+    }
+    if (!found) return null;
+    return {
+      left: left - containerRect.left,
+      top: top - containerRect.top,
+      right: right - containerRect.left,
+      bottom: bottom - containerRect.top
+    };
+  };
+
   const updateHandles = (layerNumber) => {
     if (!handles) return;
-    if (layerNumber === null || layerNumber === undefined) {
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    const layerNumbers = multiSelected.length > 1
+      ? multiSelected
+      : (layerNumber === null || layerNumber === undefined ? [] : [layerNumber]);
+    if (!layerNumbers.length) {
       handles.hidden = true;
       return;
     }
-    const element = getGraphics()[layerNumber - 1];
-    if (!element || !element.isConnected) {
+    const box = getSelectionScreenBox(layerNumbers);
+    if (!box) {
       handles.hidden = true;
       return;
     }
-    const containerRect = previewContainer.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    const left = elementRect.left - containerRect.left;
-    const top = elementRect.top - containerRect.top;
-    const midX = left + elementRect.width / 2;
-    const midY = top + elementRect.height / 2;
-    const right = left + elementRect.width;
-    const bottom = top + elementRect.height;
+    const { left, top, right, bottom } = box;
+    const midX = (left + right) / 2;
+    const midY = (top + bottom) / 2;
     const positions = {
       nw: [left, top], n: [midX, top], ne: [right, top],
       e: [right, midY], se: [right, bottom], s: [midX, bottom],
@@ -838,15 +864,22 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       handleEl.style.left = `${x}px`;
       handleEl.style.top = `${y}px`;
     }
+    // Rotating a multi-element group as a single unit isn't supported yet, so
+    // hide the rotate handle rather than let it silently rotate just one
+    // element out from under an apparent group selection.
+    const isGroup = layerNumbers.length > 1;
     if (rotateHandleEl) {
       rotateHandleEl.style.left = `${midX}px`;
       rotateHandleEl.style.top = `${top - ROTATE_HANDLE_OFFSET}px`;
+      rotateHandleEl.hidden = isGroup;
     }
     if (rotateLineEl) {
       rotateLineEl.style.left = `${midX}px`;
       rotateLineEl.style.top = `${top - ROTATE_HANDLE_OFFSET}px`;
       rotateLineEl.style.height = `${ROTATE_HANDLE_OFFSET}px`;
+      rotateLineEl.hidden = isGroup;
     }
+    handles.classList.toggle("is-group", isGroup);
     handles.hidden = false;
   };
 
@@ -1008,14 +1041,83 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
 
   let dragState = null;
   let resizeState = null;
+  let groupResizeState = null;
   let rotateState = null;
   let pendingSelectInfo = null;
+
+  // Captures a selected element's current box in two related coordinate
+  // frames: `base` is the pre-offset frame that per-element `resize` edits
+  // are stored in (same frame as the element's own untransformed getBBox()),
+  // and `adjusted` additionally applies the element's offsetX/offsetY so it
+  // lines up with every other selected element's box for union/proportional
+  // math. Elements aren't nested under any ambient transform here, so plain
+  // numeric addition is enough - no matrix math required.
+  const getElementResizeSnapshot = (layerNumber) => {
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return null;
+    let nativeBBox;
+    try { nativeBBox = element.getBBox(); } catch { return null; }
+    if (!nativeBBox) return null;
+    const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    const offsetX = edit?.offsetX || 0;
+    const offsetY = edit?.offsetY || 0;
+    const base = edit?.resize ?? {
+      left: nativeBBox.x,
+      top: nativeBBox.y,
+      right: nativeBBox.x + nativeBBox.width,
+      bottom: nativeBBox.y + nativeBBox.height
+    };
+    return {
+      layerNumber,
+      nativeBBox,
+      offsetX,
+      offsetY,
+      base,
+      adjusted: {
+        left: base.left + offsetX,
+        top: base.top + offsetY,
+        right: base.right + offsetX,
+        bottom: base.bottom + offsetY
+      }
+    };
+  };
+
+  const startGroupResize = (handleName, layerNumbers, event) => {
+    const entries = layerNumbers.map(getElementResizeSnapshot).filter(Boolean);
+    if (entries.length < 2) return;
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const entry of entries) {
+      left = Math.min(left, entry.adjusted.left);
+      top = Math.min(top, entry.adjusted.top);
+      right = Math.max(right, entry.adjusted.right);
+      bottom = Math.max(bottom, entry.adjusted.bottom);
+    }
+    groupResizeState = {
+      pointerId: event.pointerId,
+      handle: handleName,
+      startX: event.clientX,
+      startY: event.clientY,
+      unitsPerPixel: getUnitsPerPixel(),
+      initialBox: { left, top, right, bottom },
+      entries
+    };
+    event.target.setPointerCapture?.(event.pointerId);
+  };
 
   const onHandlePointerDown = (event) => {
     const handleName = event.target?.dataset?.handle;
     if (!handleName) return;
     event.stopPropagation();
     event.preventDefault();
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    if (multiSelected.length > 1) {
+      // Group rotation isn't supported (the rotate handle is hidden whenever
+      // a group is selected - see updateHandles), so this branch only ever
+      // needs to handle resize handles.
+      if (handleName === "rotate") return;
+      startGroupResize(handleName, multiSelected, event);
+      return;
+    }
     const layerNumber = layersController.getSelectedLayer();
     if (layerNumber === null || layerNumber === undefined) return;
     const element = getGraphics()[layerNumber - 1];
@@ -1116,6 +1218,80 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       updateAssetLayerEdits(asset.id, layerNumber, { rotation });
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
       updateTooltip(layerNumber);
+      return;
+    }
+    if (groupResizeState && event.pointerId === groupResizeState.pointerId) {
+      const { handle, unitsPerPixel, initialBox, entries, startX, startY } = groupResizeState;
+      const dxLocal = (event.clientX - startX) * unitsPerPixel.x;
+      const dyLocal = (event.clientY - startY) * unitsPerPixel.y;
+      const minSize = 4;
+      let { left, top, right, bottom } = initialBox;
+      // Only the edges implicated by the dragged handle move, exactly like
+      // single-element resize - the fixed anchor side(s) of the group box
+      // never move.
+      if (handle.includes("e")) right = Math.max(left + minSize, right + dxLocal);
+      if (handle.includes("w")) left = Math.min(right - minSize, left + dxLocal);
+      if (handle.includes("s")) bottom = Math.max(top + minSize, bottom + dyLocal);
+      if (handle.includes("n")) top = Math.min(bottom - minSize, top + dyLocal);
+      const initWidth = initialBox.right - initialBox.left;
+      const initHeight = initialBox.bottom - initialBox.top;
+      if (event.shiftKey && initWidth > 0 && initHeight > 0) {
+        // Lock the whole group's box to its own starting aspect ratio, same
+        // approach as single-element resize but applied to the group box.
+        const aspect = initWidth / initHeight;
+        const touchesX = handle.includes("e") || handle.includes("w");
+        const touchesY = handle.includes("n") || handle.includes("s");
+        if (touchesX && touchesY) {
+          const dominant = Math.abs(dxLocal) >= Math.abs(dyLocal) ? "x" : "y";
+          if (dominant === "x") {
+            const height = Math.max(minSize, (right - left) / aspect);
+            if (handle.includes("s")) bottom = top + height; else top = bottom - height;
+          } else {
+            const width = Math.max(minSize, (bottom - top) * aspect);
+            if (handle.includes("e")) right = left + width; else left = right - width;
+          }
+        } else if (touchesX) {
+          const height = Math.max(minSize, (right - left) / aspect);
+          const centerY = (initialBox.top + initialBox.bottom) / 2;
+          top = centerY - height / 2;
+          bottom = centerY + height / 2;
+        } else if (touchesY) {
+          const width = Math.max(minSize, (bottom - top) * aspect);
+          const centerX = (initialBox.left + initialBox.right) / 2;
+          left = centerX - width / 2;
+          right = centerX + width / 2;
+        }
+      }
+      // Scale every selected element's box proportionally within the new
+      // group box, using each element's position relative to the *initial*
+      // group box so repeatedly resizing keeps all elements moving in
+      // lockstep rather than compounding drift.
+      const scaleX = initWidth > 0 ? (right - left) / initWidth : 1;
+      const scaleY = initHeight > 0 ? (bottom - top) / initHeight : 1;
+      for (const entry of entries) {
+        const { layerNumber, nativeBBox, offsetX, offsetY, adjusted } = entry;
+        const newLeft = left + (adjusted.left - initialBox.left) * scaleX;
+        const newRight = left + (adjusted.right - initialBox.left) * scaleX;
+        const newTop = top + (adjusted.top - initialBox.top) * scaleY;
+        const newBottom = top + (adjusted.bottom - initialBox.top) * scaleY;
+        updateAssetLayerEdits(asset.id, layerNumber, {
+          resize: {
+            nativeLeft: nativeBBox.x,
+            nativeTop: nativeBBox.y,
+            nativeWidth: nativeBBox.width,
+            nativeHeight: nativeBBox.height,
+            // `resize` edits are stored pre-offset (see the single-element
+            // resize path below), so the element's own unchanged offsetX/Y
+            // is subtracted back out here.
+            left: newLeft - offsetX,
+            top: newTop - offsetY,
+            right: newRight - offsetX,
+            bottom: newBottom - offsetY
+          }
+        });
+      }
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      updateHandles(layersController.getSelectedLayer());
       return;
     }
     if (resizeState && event.pointerId === resizeState.pointerId) {
@@ -1245,6 +1421,10 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     }
     if (rotateState && event.pointerId === rotateState.pointerId) {
       rotateState = null;
+      return;
+    }
+    if (groupResizeState && event.pointerId === groupResizeState.pointerId) {
+      groupResizeState = null;
       return;
     }
     if (resizeState && event.pointerId === resizeState.pointerId) {
@@ -1517,7 +1697,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     setHoveredLayer: () => {},
     clearHoveredLayer: () => {},
     selectLayer: () => {},
-    getSelectedLayer: () => null
+    getSelectedLayer: () => null,
+    getMultiSelection: () => []
   };
 
   loadAssetSvgData(asset.source).then((data) => {
@@ -1605,6 +1786,12 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
         selectedLayerNumber = selectedLayerNumber === layerNumber ? null : layerNumber;
         multiSelection = new Set(selectedLayerNumber !== null ? [selectedLayerNumber] : []);
       }
+      // Keep the combine checkboxes in sync with whatever is currently
+      // (multi-)selected, so shift-clicking elements on the canvas or panel
+      // checks their boxes without any extra step.
+      selection.clear();
+      for (const number of multiSelection) selection.add(number);
+      syncSelection();
       onSelect?.(selectedLayerNumber);
       onMultiSelectChange?.([...multiSelection]);
       syncHighlight();
@@ -1616,6 +1803,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     };
     controller.selectLayer = selectLayer;
     controller.getSelectedLayer = () => selectedLayerNumber;
+    controller.getMultiSelection = () => [...multiSelection];
     const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
     function renderElementRow(layer) {
       const item = document.createElement("li");
