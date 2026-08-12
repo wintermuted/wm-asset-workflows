@@ -633,7 +633,7 @@
 
 /* ── Nested groups (SVG <g>) rendered as an outlined sub-list ───────────── */
 
-.asset-element-group {
+.asset-detail-layers li.asset-element-group {
   display: block;
   padding: 0.5rem 0.55rem 0.6rem;
   border: 1px dashed var(--wm-color-border-strong);
