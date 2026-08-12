@@ -649,11 +649,20 @@ function describeSvgLayers(elements) {
   return `${layers.length === 1 ? "element" : "elements"} ${summary}`;
 }
 
-function renderAssetPrimarySvg(root, asset, size = 512) {
+function previewSizeLabel(size) {
+  return size === "fit" ? "Fit width" : `${size}px`;
+}
+
+function setAssetPrimarySvgSize(root, asset, size) {
+  const cssSize = size === "fit" ? "100%" : `${size}px`;
+  root.style.setProperty("--asset-preview-size", cssSize);
+  root.setAttribute("aria-label", `${asset.label} at ${previewSizeLabel(size)}`);
+}
+
+function renderAssetPrimarySvg(root, asset, size = "fit") {
   root.replaceChildren();
   root.dataset.assetId = asset.id;
-  root.style.setProperty("--asset-preview-size", `${size}px`);
-  root.setAttribute("aria-label", `${asset.label} at ${size}px`);
+  setAssetPrimarySvgSize(root, asset, size);
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
@@ -2754,15 +2763,18 @@ function renderAssetDetail(assetId) {
   overview.hidden = false;
   layersSection.hidden = false;
   const previewSizes = uniqueSortedSizes(asset);
-  const defaultPreviewSize = previewSizes.includes(512) ? 512 : previewSizes.at(-1);
-  previewSizeSelect.replaceChildren(...previewSizes.map((size) => {
+  const defaultPreviewSize = "fit";
+  const fitOption = document.createElement("option");
+  fitOption.value = "fit";
+  fitOption.textContent = "Fit width";
+  fitOption.selected = true;
+  previewSizeSelect.replaceChildren(fitOption, ...previewSizes.map((size) => {
     const option = document.createElement("option");
     option.value = String(size);
     option.textContent = `${size}px`;
-    option.selected = size === defaultPreviewSize;
     return option;
   }));
-  primarySizeCaption.textContent = `${defaultPreviewSize}px`;
+  primarySizeCaption.textContent = previewSizeLabel(defaultPreviewSize);
   renderAssetPrimarySvg(primarySvg, asset, defaultPreviewSize);
   activePrimaryLayerInteractionCleanup?.();
   const primaryInteractionState = { updateTooltip: () => {} };
@@ -2807,9 +2819,8 @@ function renderAssetDetail(assetId) {
 
   const showCanvasSize = (size) => {
     previewSizeSelect.value = String(size);
-    primarySizeCaption.textContent = `${size}px`;
-    primarySvg.style.setProperty("--asset-preview-size", `${size}px`);
-    primarySvg.setAttribute("aria-label", `${asset.label} at ${size}px`);
+    primarySizeCaption.textContent = previewSizeLabel(size);
+    setAssetPrimarySvgSize(primarySvg, asset, size);
     primaryCanvas.hidden = false;
     sizeGrid.hidden = true;
     previewSizeListToggle.setAttribute("aria-pressed", "false");
@@ -2817,7 +2828,9 @@ function renderAssetDetail(assetId) {
     if (typeof lucide !== "undefined") lucide.createIcons();
   };
 
-  previewSizeSelect.onchange = () => showCanvasSize(Number(previewSizeSelect.value));
+  previewSizeSelect.onchange = () => showCanvasSize(
+    previewSizeSelect.value === "fit" ? "fit" : Number(previewSizeSelect.value)
+  );
   previewSizeListToggle.onclick = () => {
     const showingList = !sizeGrid.hidden;
     primaryCanvas.hidden = !showingList;

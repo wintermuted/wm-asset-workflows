@@ -1627,8 +1627,10 @@ button.asset-layer-number {
 
 .asset-size-grid {
   display: grid;
-  gap: 0.85rem;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  width: 100%;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  align-items: start;
 }
 
 .project-workspace,
@@ -2328,11 +2330,25 @@ button.asset-layer-number {
 .size-preview-card {
   border: 1px solid var(--wm-color-border);
   border-radius: var(--wm-radius-sm);
-  padding: 0.75rem;
+  padding: 0.5rem;
   background: var(--wm-color-surface-solid);
   display: grid;
   justify-items: center;
   min-width: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.size-preview-card:hover,
+.size-preview-card:focus-visible {
+  border-color: var(--wm-color-accent);
+  background: var(--wm-color-surface);
+}
+
+.size-preview-card:focus-visible {
+  outline: 2px solid var(--wm-color-accent);
+  outline-offset: 2px;
 }
 
 .size-preview-frame {
@@ -2342,7 +2358,7 @@ button.asset-layer-number {
   margin: 0 auto;
   border-radius: var(--wm-radius-xs);
   background: var(--wm-color-surface-strong);
-  padding: 0.75rem;
+  padding: 0.45rem;
   width: min(100%, var(--frame-size, 120px));
   aspect-ratio: 1 / 1;
   box-sizing: border-box;
