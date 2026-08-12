@@ -12,7 +12,7 @@
     "workflow:logo": "npm run build:specs && npm run generate:png && npm run capture"
   },
   "dependencies": {
-    "@wintermuted/ui-theme": "file:../wintermuted-ui-theme"
+    "@wintermuted/ui-theme": "^0.21.4"
   },
   "devDependencies": {
     "playwright": "^1.54.0"
