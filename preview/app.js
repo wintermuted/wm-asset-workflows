@@ -3708,7 +3708,7 @@ function wireAssetDetailSidebars() {
       content.inert = collapsed;
       toggle.setAttribute("aria-expanded", String(!collapsed));
       toggle.title = `${collapsed ? "Expand" : "Collapse"} ${label}`;
-      toggle.querySelector(".visually-hidden").textContent = `${collapsed ? "Expand" : "Collapse"} ${label}`;
+      toggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${label}`);
       const nextIcon = document.createElement("i");
       nextIcon.dataset.lucide = collapsed ? collapsedIcon : expandedIcon;
       nextIcon.setAttribute("aria-hidden", "true");
