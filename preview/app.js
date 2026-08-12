@@ -792,7 +792,14 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
   const onPointerDown = (event) => {
     const graphics = getGraphics();
     const idx = graphics.indexOf(event.target);
-    if (idx === -1) return;
+    if (idx === -1) {
+      // Clicked off the artboard's drawn elements (background/empty canvas area) — deselect.
+      const selectedLayerNumber = layersController.getSelectedLayer();
+      if (selectedLayerNumber !== null && selectedLayerNumber !== undefined) {
+        layersController.selectLayer(selectedLayerNumber);
+      }
+      return;
+    }
     const layerNumber = idx + 1;
     const selectedLayerNumber = layersController.getSelectedLayer();
     if (layerNumber === selectedLayerNumber) {
@@ -849,7 +856,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
   };
 
   window.addEventListener("keydown", onKeydown);
-  root.addEventListener("pointerdown", onPointerDown);
+  previewContainer.addEventListener("pointerdown", onPointerDown);
   root.addEventListener("pointerover", onPointerOver);
   root.addEventListener("pointerout", onPointerOut);
   window.addEventListener("pointermove", onPointerMove);
@@ -861,7 +868,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     updateTooltip,
     cleanup: () => {
       window.removeEventListener("keydown", onKeydown);
-      root.removeEventListener("pointerdown", onPointerDown);
+      previewContainer.removeEventListener("pointerdown", onPointerDown);
       root.removeEventListener("pointerover", onPointerOver);
       root.removeEventListener("pointerout", onPointerOut);
       window.removeEventListener("pointermove", onPointerMove);
