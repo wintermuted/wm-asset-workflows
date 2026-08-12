@@ -854,6 +854,40 @@
   outline-offset: 2px;
 }
 
+.asset-element-group-collapse-button {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  color: var(--wm-color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.asset-element-group-collapse-button svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.asset-element-group-collapse-button:hover,
+.asset-element-group-collapse-button:focus-visible {
+  color: var(--wm-color-accent);
+  border-color: var(--wm-color-accent);
+}
+
+.asset-element-group-collapse-button:focus-visible {
+  outline: 2px solid var(--wm-color-accent);
+  outline-offset: 2px;
+}
+
+.asset-element-group.is-collapsed {
+  padding-bottom: 0.5rem;
+}
+
 .asset-element-group-children {
   padding-left: 0.7rem;
   border-left: 1px solid var(--wm-color-border-strong);

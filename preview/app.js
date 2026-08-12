@@ -129,6 +129,11 @@ const assetPendingGroupFocus = new Map();
 // Tracks an element just created via "Add element" (asset id -> element number),
 // so the panel can select/highlight it once rendered.
 const assetPendingElementSelection = new Map();
+// Tracks which <g> groups are collapsed in the elements panel (asset id ->
+// WeakSet of group DOM elements). The parsed SVG document is cached per
+// source, so the same <g> element reference persists across re-renders,
+// making it a stable collapse-state key without needing a synthetic id.
+const assetCollapsedGroups = new Map();
 // Cleans up the keyboard/drag listeners wired for the previously rendered
 // asset detail view, so re-rendering (navigating between assets) doesn't
 // stack up duplicate global listeners.
@@ -1675,6 +1680,11 @@ function assetLayerSelection(assetId) {
   return assetLayerSelections.get(assetId);
 }
 
+function collapsedGroupsForAsset(assetId) {
+  if (!assetCollapsedGroups.has(assetId)) assetCollapsedGroups.set(assetId, new WeakSet());
+  return assetCollapsedGroups.get(assetId);
+}
+
 function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
   actionsBar.replaceChildren();
   actionsBar.hidden = false;
@@ -2254,6 +2264,15 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           groupItem.className = "asset-element-group";
           const header = document.createElement("div");
           header.className = "asset-element-group-header";
+          const isCollapsed = collapsedGroupsForAsset(asset.id).has(node.element);
+          const collapseButton = document.createElement("button");
+          collapseButton.type = "button";
+          collapseButton.className = "asset-element-group-collapse-button";
+          collapseButton.setAttribute("aria-expanded", String(!isCollapsed));
+          collapseButton.title = isCollapsed ? "Expand group" : "Collapse group";
+          collapseButton.setAttribute("aria-label", isCollapsed ? "Expand group" : "Collapse group");
+          collapseButton.innerHTML = `<i data-lucide="${isCollapsed ? "chevron-right" : "chevron-down"}" aria-hidden="true"></i>`;
+          header.appendChild(collapseButton);
           const tag = document.createElement("code");
           tag.textContent = "<g>";
           header.appendChild(tag);
@@ -2281,12 +2300,29 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           addToGroupButton.innerHTML = '<i data-lucide="plus" aria-hidden="true"></i>';
           addToGroupButton.addEventListener("click", (event) => {
             event.stopPropagation();
+            collapsedGroupsForAsset(asset.id).delete(node.element);
             const shapeSelect = actionsBar.querySelector(".asset-layer-add-shape");
             addElement(shapeSelect?.value || "rect", node.element);
           });
           header.appendChild(addToGroupButton);
           const nestedList = document.createElement("ol");
           nestedList.className = "asset-element-group-children";
+          nestedList.hidden = isCollapsed;
+          groupItem.classList.toggle("is-collapsed", isCollapsed);
+          collapseButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const collapsedSet = collapsedGroupsForAsset(asset.id);
+            const nowCollapsed = !collapsedSet.has(node.element);
+            if (nowCollapsed) collapsedSet.add(node.element);
+            else collapsedSet.delete(node.element);
+            nestedList.hidden = nowCollapsed;
+            groupItem.classList.toggle("is-collapsed", nowCollapsed);
+            collapseButton.setAttribute("aria-expanded", String(!nowCollapsed));
+            collapseButton.title = nowCollapsed ? "Expand group" : "Collapse group";
+            collapseButton.setAttribute("aria-label", nowCollapsed ? "Expand group" : "Collapse group");
+            collapseButton.innerHTML = `<i data-lucide="${nowCollapsed ? "chevron-right" : "chevron-down"}" aria-hidden="true"></i>`;
+            if (typeof lucide !== "undefined") lucide.createIcons();
+          });
           renderElementNodes(node.children, nestedList);
           groupItem.append(header, nestedList);
           container.appendChild(groupItem);
