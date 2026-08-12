@@ -675,11 +675,31 @@ function applyAssetLayerEdits(svg, assetId) {
       element.setAttribute(property, value);
     }
     if (edit.opacity !== undefined) element.setAttribute("opacity", String(edit.opacity));
-    if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
+    if (edit.offsetX !== undefined || edit.offsetY !== undefined || edit.resize) {
       const originalTransform = element.dataset.originalTransform ?? element.getAttribute("transform") ?? "";
       element.dataset.originalTransform = originalTransform;
-      const translation = `translate(${edit.offsetX || 0} ${edit.offsetY || 0})`;
-      element.setAttribute("transform", `${originalTransform} ${translation}`.trim());
+      const parts = [originalTransform];
+      if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
+        parts.push(`translate(${edit.offsetX || 0} ${edit.offsetY || 0})`);
+      }
+      if (edit.resize) {
+        // Maps the element's native (untransformed) bounding box edges
+        // (nativeLeft/Top/Right/Bottom, captured once on the first resize) onto
+        // the stored current edges (left/top/right/bottom). Storing absolute
+        // native-space edges - rather than an anchor point plus a scale factor -
+        // means each edge's screen position is derived independently every time,
+        // so dragging a different handle in a later resize never disturbs edges
+        // that aren't being dragged, even if a previous resize used a different
+        // anchor. Applied innermost (rightmost) so it acts on the element's
+        // native geometry before the offset/original transform.
+        const { nativeLeft, nativeTop, nativeWidth, nativeHeight, left, top, right, bottom } = edit.resize;
+        const scaleX = nativeWidth > 0 ? (right - left) / nativeWidth : 1;
+        const scaleY = nativeHeight > 0 ? (bottom - top) / nativeHeight : 1;
+        const translateX = left - scaleX * nativeLeft;
+        const translateY = top - scaleY * nativeTop;
+        parts.push(`translate(${translateX} ${translateY}) scale(${scaleX} ${scaleY})`);
+      }
+      element.setAttribute("transform", parts.join(" ").trim());
     }
   }
 }
@@ -713,13 +733,14 @@ function positionPrimaryTooltip(tooltip, container, element) {
 }
 
 // Wires up hover/selection sync and interaction between the primary preview
-// canvas and the elements panel, plus a live-updating position tooltip for
-// the selected element. `layersController` is the object returned by
-// renderAssetLayers, exposing setHoveredLayer/clearHoveredLayer/selectLayer/
-// getSelectedLayer so both surfaces (canvas + panel) stay in sync. Returns
-// `{ updateTooltip, cleanup }`; callers must invoke the previous cleanup
-// before wiring up a new asset (renderAssetDetail re-runs per view).
-function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, layersController) {
+// canvas and the elements panel, plus a live-updating position tooltip and
+// resize handles for the selected element. `layersController` is the object
+// returned by renderAssetLayers, exposing setHoveredLayer/clearHoveredLayer/
+// selectLayer/getSelectedLayer so both surfaces (canvas + panel) stay in
+// sync. Returns `{ updateTooltip, cleanup }`; callers must invoke the
+// previous cleanup before wiring up a new asset (renderAssetDetail re-runs
+// per view).
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, asset, layersController) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
@@ -730,7 +751,53 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     return /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName);
   };
 
+  const handleNames = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+  const handleElements = new Map();
+  if (handles) {
+    handles.replaceChildren();
+    for (const name of handleNames) {
+      const handleEl = document.createElement("div");
+      handleEl.className = `asset-resize-handle asset-resize-handle--${name}`;
+      handleEl.dataset.handle = name;
+      handles.appendChild(handleEl);
+      handleElements.set(name, handleEl);
+    }
+  }
+
+  const updateHandles = (layerNumber) => {
+    if (!handles) return;
+    if (layerNumber === null || layerNumber === undefined) {
+      handles.hidden = true;
+      return;
+    }
+    const element = getGraphics()[layerNumber - 1];
+    if (!element || !element.isConnected) {
+      handles.hidden = true;
+      return;
+    }
+    const containerRect = previewContainer.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const left = elementRect.left - containerRect.left;
+    const top = elementRect.top - containerRect.top;
+    const midX = left + elementRect.width / 2;
+    const midY = top + elementRect.height / 2;
+    const right = left + elementRect.width;
+    const bottom = top + elementRect.height;
+    const positions = {
+      nw: [left, top], n: [midX, top], ne: [right, top],
+      e: [right, midY], se: [right, bottom], s: [midX, bottom],
+      sw: [left, bottom], w: [left, midY]
+    };
+    for (const [name, handleEl] of handleElements) {
+      const [x, y] = positions[name];
+      handleEl.style.left = `${x}px`;
+      handleEl.style.top = `${y}px`;
+    }
+    handles.hidden = false;
+  };
+
   const updateTooltip = (layerNumber) => {
+    updateHandles(layerNumber);
     if (!tooltip) return;
     if (layerNumber === null || layerNumber === undefined) {
       tooltip.hidden = true;
@@ -787,8 +854,59 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     layersController.clearHoveredLayer(idx + 1);
   };
 
+  const getUnitsPerPixel = () => {
+    const svg = root.querySelector("svg");
+    const viewBox = svg?.viewBox?.baseVal;
+    const bounds = svg?.getBoundingClientRect();
+    return {
+      x: viewBox && bounds?.width ? viewBox.width / bounds.width : 1,
+      y: viewBox && bounds?.height ? viewBox.height / bounds.height : 1
+    };
+  };
+
   let dragState = null;
+  let resizeState = null;
   let pendingSelectInfo = null;
+
+  const onHandlePointerDown = (event) => {
+    const handleName = event.target?.dataset?.handle;
+    if (!handleName) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const layerNumber = layersController.getSelectedLayer();
+    if (layerNumber === null || layerNumber === undefined) return;
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return;
+    let nativeBBox;
+    try { nativeBBox = element.getBBox(); } catch { return; }
+    if (!nativeBBox) return;
+    const unitsPerPixel = getUnitsPerPixel();
+    const existingResize = assetLayerEdits.get(asset.id)?.get(layerNumber)?.resize;
+    // The native box is captured fresh every drag (getBBox() ignores the
+    // element's own transform, so this is always the untransformed geometry).
+    // If a previous resize already exists, its stored current edges continue
+    // to describe the effective (scaled) box relative to THIS native box - but
+    // only if the native box hasn't changed shape since. Guard against that by
+    // falling back to the fresh native box when there's no existing resize.
+    const currentBox = existingResize ?? {
+      left: nativeBBox.x,
+      top: nativeBBox.y,
+      right: nativeBBox.x + nativeBBox.width,
+      bottom: nativeBBox.y + nativeBBox.height
+    };
+    resizeState = {
+      layerNumber,
+      pointerId: event.pointerId,
+      handle: handleName,
+      startX: event.clientX,
+      startY: event.clientY,
+      nativeBBox,
+      currentBox,
+      unitsPerPixel
+    };
+    event.target.setPointerCapture?.(event.pointerId);
+  };
+
   const onPointerDown = (event) => {
     const graphics = getGraphics();
     const idx = graphics.indexOf(event.target);
@@ -803,11 +921,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     const layerNumber = idx + 1;
     const selectedLayerNumber = layersController.getSelectedLayer();
     if (layerNumber === selectedLayerNumber) {
-      const svg = root.querySelector("svg");
-      const viewBox = svg?.viewBox?.baseVal;
-      const bounds = svg?.getBoundingClientRect();
-      const scaleX = viewBox && bounds?.width ? viewBox.width / bounds.width : 1;
-      const scaleY = viewBox && bounds?.height ? viewBox.height / bounds.height : 1;
+      const { x: scaleX, y: scaleY } = getUnitsPerPixel();
       const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
       dragState = {
         layerNumber,
@@ -827,6 +941,32 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     event.preventDefault();
   };
   const onPointerMove = (event) => {
+    if (resizeState && event.pointerId === resizeState.pointerId) {
+      const { handle, nativeBBox, currentBox, unitsPerPixel, layerNumber, startX, startY } = resizeState;
+      const dxLocal = (event.clientX - startX) * unitsPerPixel.x;
+      const dyLocal = (event.clientY - startY) * unitsPerPixel.y;
+      const minSize = 2;
+      let { left, top, right, bottom } = currentBox;
+      // Only the edges implicated by the dragged handle move; edges not being
+      // dragged keep their previously stored value, so switching handles
+      // between separate resize operations never disturbs the fixed side(s).
+      if (handle.includes("e")) right = Math.max(left + minSize, right + dxLocal);
+      if (handle.includes("w")) left = Math.min(right - minSize, left + dxLocal);
+      if (handle.includes("s")) bottom = Math.max(top + minSize, bottom + dyLocal);
+      if (handle.includes("n")) top = Math.min(bottom - minSize, top + dyLocal);
+      updateAssetLayerEdits(asset.id, layerNumber, {
+        resize: {
+          nativeLeft: nativeBBox.x,
+          nativeTop: nativeBBox.y,
+          nativeWidth: nativeBBox.width,
+          nativeHeight: nativeBBox.height,
+          left, top, right, bottom
+        }
+      });
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      updateTooltip(layerNumber);
+      return;
+    }
     if (!dragState || event.pointerId !== dragState.pointerId) return;
     const dx = event.clientX - dragState.startX;
     const dy = event.clientY - dragState.startY;
@@ -835,7 +975,12 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     const offsetY = dragState.baseOffsetY + dy * dragState.scaleY;
     moveSelectedLayer(dragState.layerNumber, offsetX, offsetY);
   };
+
   const onPointerUp = (event) => {
+    if (resizeState && event.pointerId === resizeState.pointerId) {
+      resizeState = null;
+      return;
+    }
     if (dragState && event.pointerId === dragState.pointerId) {
       const { layerNumber, moved } = dragState;
       dragState = null;
@@ -857,6 +1002,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
 
   window.addEventListener("keydown", onKeydown);
   previewContainer.addEventListener("pointerdown", onPointerDown);
+  handles?.addEventListener("pointerdown", onHandlePointerDown);
   root.addEventListener("pointerover", onPointerOver);
   root.addEventListener("pointerout", onPointerOut);
   window.addEventListener("pointermove", onPointerMove);
@@ -869,6 +1015,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
     cleanup: () => {
       window.removeEventListener("keydown", onKeydown);
       previewContainer.removeEventListener("pointerdown", onPointerDown);
+      handles?.removeEventListener("pointerdown", onHandlePointerDown);
       root.removeEventListener("pointerover", onPointerOver);
       root.removeEventListener("pointerout", onPointerOut);
       window.removeEventListener("pointermove", onPointerMove);
@@ -876,6 +1023,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, asset, l
       window.removeEventListener("pointercancel", onPointerUp);
       window.removeEventListener("resize", onWindowResize);
       if (tooltip) tooltip.hidden = true;
+      if (handles) handles.hidden = true;
     }
   };
 }
@@ -1973,6 +2121,7 @@ function renderAssetDetail(assetId) {
   const primaryPreview = document.getElementById("asset-primary-preview");
   const primarySvg = document.getElementById("asset-primary-svg");
   const primaryTooltip = document.getElementById("asset-primary-tooltip");
+  const primaryHandles = document.getElementById("asset-primary-handles");
   const colorsSection = document.getElementById("asset-detail-colors-section");
   const colorsList = document.getElementById("asset-detail-colors");
   const projectColorsList = document.getElementById("asset-project-colors");
@@ -1988,7 +2137,7 @@ function renderAssetDetail(assetId) {
   const layerActions = document.getElementById("asset-layer-actions");
   const sizesSection = document.getElementById("asset-sizes-section");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -2043,7 +2192,7 @@ function renderAssetDetail(assetId) {
     () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber)
   );
-  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, asset, layersController);
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, asset, layersController);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
   activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {

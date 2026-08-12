@@ -553,6 +553,50 @@
   display: none;
 }
 
+.asset-primary-handles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.asset-primary-handles[hidden] {
+  display: none;
+}
+
+.asset-resize-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1.5px solid #ff2d2d;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.asset-resize-handle--nw,
+.asset-resize-handle--se {
+  cursor: nwse-resize;
+}
+
+.asset-resize-handle--ne,
+.asset-resize-handle--sw {
+  cursor: nesw-resize;
+}
+
+.asset-resize-handle--n,
+.asset-resize-handle--s {
+  cursor: ns-resize;
+}
+
+.asset-resize-handle--e,
+.asset-resize-handle--w {
+  cursor: ew-resize;
+}
+
 .asset-primary-svg,
 .asset-primary-svg svg {
   width: min(100%, 512px);
