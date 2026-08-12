@@ -759,7 +759,7 @@ function positionPrimaryTooltip(tooltip, container, element) {
 // sync. Returns `{ updateTooltip, cleanup }`; callers must invoke the
 // previous cleanup before wiring up a new asset (renderAssetDetail re-runs
 // per view).
-function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, asset, layersController) {
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
@@ -906,6 +906,88 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     return {
       x: viewBox && bounds?.width ? viewBox.width / bounds.width : 1,
       y: viewBox && bounds?.height ? viewBox.height / bounds.height : 1
+    };
+  };
+
+  // Alignment guides: while dragging/resizing, the moving element's screen
+  // edges/centers are compared against every other element's edges/centers
+  // (plus the artboard/svg bounds) and snapped when within GUIDE_SNAP_PX,
+  // with a cyan guide line drawn at the matched position. Comparisons and
+  // snapping happen in screen space (getBoundingClientRect, relative to
+  // previewContainer) since that's the space users visually align in; the
+  // resulting pixel correction is converted back to local SVG units via
+  // unitsPerPixel before being written into the edit.
+  const GUIDE_SNAP_PX = 6;
+
+  const clearGuides = () => {
+    if (guides) {
+      guides.replaceChildren();
+      guides.hidden = true;
+    }
+  };
+
+  const showGuide = (axis, screenPos) => {
+    if (!guides) return;
+    guides.hidden = false;
+    const line = document.createElement("div");
+    line.className = `asset-alignment-guide asset-alignment-guide--${axis}`;
+    if (axis === "v") line.style.left = `${screenPos}px`;
+    else line.style.top = `${screenPos}px`;
+    guides.appendChild(line);
+  };
+
+  // Returns edge/center rects (relative to previewContainer) for the
+  // artboard SVG and every graphic other than `excludeIndex`.
+  const getAlignmentTargets = (excludeIndex) => {
+    const containerRect = previewContainer.getBoundingClientRect();
+    const toEdges = (rect) => ({
+      left: rect.left - containerRect.left,
+      right: rect.right - containerRect.left,
+      centerX: (rect.left + rect.right) / 2 - containerRect.left,
+      top: rect.top - containerRect.top,
+      bottom: rect.bottom - containerRect.top,
+      centerY: (rect.top + rect.bottom) / 2 - containerRect.top
+    });
+    const targets = [];
+    const svg = root.querySelector("svg");
+    if (svg) targets.push(toEdges(svg.getBoundingClientRect()));
+    getGraphics().forEach((el, idx) => {
+      if (idx === excludeIndex) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      targets.push(toEdges(rect));
+    });
+    return targets;
+  };
+
+  // Among `keys` (edge/center property names to test on the moving element),
+  // finds the target whose same-named property is closest to the moving
+  // element's value, within GUIDE_SNAP_PX. Same-type comparison only (left
+  // aligns to left, center to center, etc.) keeps snap behavior predictable.
+  const findAxisSnap = (activeEdges, keys, targets) => {
+    let best = null;
+    for (const key of keys) {
+      const activeVal = activeEdges[key];
+      for (const target of targets) {
+        const delta = target[key] - activeVal;
+        if (Math.abs(delta) <= GUIDE_SNAP_PX && (!best || Math.abs(delta) < Math.abs(best.delta))) {
+          best = { delta, screenPos: target[key], key };
+        }
+      }
+    }
+    return best;
+  };
+
+  const getElementEdges = (element) => {
+    const containerRect = previewContainer.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left - containerRect.left,
+      right: rect.right - containerRect.left,
+      centerX: (rect.left + rect.right) / 2 - containerRect.left,
+      top: rect.top - containerRect.top,
+      bottom: rect.bottom - containerRect.top,
+      centerY: (rect.top + rect.bottom) / 2 - containerRect.top
     };
   };
 
@@ -1058,16 +1140,47 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
           right = centerX + width / 2;
         }
       }
-      updateAssetLayerEdits(asset.id, layerNumber, {
-        resize: {
-          nativeLeft: nativeBBox.x,
-          nativeTop: nativeBBox.y,
-          nativeWidth: nativeBBox.width,
-          nativeHeight: nativeBBox.height,
-          left, top, right, bottom
+      const applyResize = (box) => {
+        updateAssetLayerEdits(asset.id, layerNumber, {
+          resize: {
+            nativeLeft: nativeBBox.x,
+            nativeTop: nativeBBox.y,
+            nativeWidth: nativeBBox.width,
+            nativeHeight: nativeBBox.height,
+            ...box
+          }
+        });
+        applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      };
+      applyResize({ left, top, right, bottom });
+      // Snap whichever edges the dragged handle actually moves against the
+      // edges/centers of other elements and the artboard; edges the handle
+      // doesn't touch are left alone so the fixed anchor side never moves.
+      clearGuides();
+      if (!event.ctrlKey && !event.metaKey) {
+        const element = getGraphics()[layerNumber - 1];
+        if (element) {
+          const targets = getAlignmentTargets(layerNumber - 1);
+          const activeEdges = getElementEdges(element);
+          let snappedX = false;
+          let snappedY = false;
+          if (handle.includes("e")) {
+            const snap = findAxisSnap(activeEdges, ["right"], targets);
+            if (snap) { right += snap.delta * unitsPerPixel.x; snappedX = true; showGuide("v", snap.screenPos); }
+          } else if (handle.includes("w")) {
+            const snap = findAxisSnap(activeEdges, ["left"], targets);
+            if (snap) { left += snap.delta * unitsPerPixel.x; snappedX = true; showGuide("v", snap.screenPos); }
+          }
+          if (handle.includes("s")) {
+            const snap = findAxisSnap(activeEdges, ["bottom"], targets);
+            if (snap) { bottom += snap.delta * unitsPerPixel.y; snappedY = true; showGuide("h", snap.screenPos); }
+          } else if (handle.includes("n")) {
+            const snap = findAxisSnap(activeEdges, ["top"], targets);
+            if (snap) { top += snap.delta * unitsPerPixel.y; snappedY = true; showGuide("h", snap.screenPos); }
+          }
+          if (snappedX || snappedY) applyResize({ left, top, right, bottom });
         }
-      });
-      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      }
       updateTooltip(layerNumber);
       return;
     }
@@ -1075,12 +1188,38 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const dx = event.clientX - dragState.startX;
     const dy = event.clientY - dragState.startY;
     if (Math.hypot(dx, dy) > 2) dragState.moved = true;
-    const offsetX = dragState.baseOffsetX + dx * dragState.scaleX;
-    const offsetY = dragState.baseOffsetY + dy * dragState.scaleY;
-    moveSelectedLayer(dragState.layerNumber, offsetX, offsetY);
+    let offsetX = dragState.baseOffsetX + dx * dragState.scaleX;
+    let offsetY = dragState.baseOffsetY + dy * dragState.scaleY;
+    updateAssetLayerEdits(asset.id, dragState.layerNumber, { offsetX, offsetY });
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    // Snap the moving element's edges/centers to other elements and the
+    // artboard on both axes independently, drawing a guide line per match.
+    clearGuides();
+    if (!event.ctrlKey && !event.metaKey) {
+      const element = getGraphics()[dragState.layerNumber - 1];
+      if (element) {
+        const targets = getAlignmentTargets(dragState.layerNumber - 1);
+        const activeEdges = getElementEdges(element);
+        const xSnap = findAxisSnap(activeEdges, ["left", "right", "centerX"], targets);
+        const ySnap = findAxisSnap(activeEdges, ["top", "bottom", "centerY"], targets);
+        if (xSnap) { offsetX += xSnap.delta * dragState.scaleX; showGuide("v", xSnap.screenPos); }
+        if (ySnap) { offsetY += ySnap.delta * dragState.scaleY; showGuide("h", ySnap.screenPos); }
+        if (xSnap || ySnap) {
+          updateAssetLayerEdits(asset.id, dragState.layerNumber, { offsetX, offsetY });
+          applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+        }
+      }
+    }
+    updateTooltip(dragState.layerNumber);
   };
 
   const onPointerUp = (event) => {
+    if (resizeState && event.pointerId === resizeState.pointerId) {
+      clearGuides();
+    }
+    if (dragState && event.pointerId === dragState.pointerId) {
+      clearGuides();
+    }
     if (rotateState && event.pointerId === rotateState.pointerId) {
       rotateState = null;
       return;
@@ -1132,6 +1271,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       window.removeEventListener("resize", onWindowResize);
       if (tooltip) tooltip.hidden = true;
       if (handles) handles.hidden = true;
+      clearGuides();
     }
   };
 }
@@ -2230,6 +2370,7 @@ function renderAssetDetail(assetId) {
   const primarySvg = document.getElementById("asset-primary-svg");
   const primaryTooltip = document.getElementById("asset-primary-tooltip");
   const primaryHandles = document.getElementById("asset-primary-handles");
+  const primaryGuides = document.getElementById("asset-primary-guides");
   const colorsSection = document.getElementById("asset-detail-colors-section");
   const colorsList = document.getElementById("asset-detail-colors");
   const projectColorsList = document.getElementById("asset-project-colors");
@@ -2245,7 +2386,7 @@ function renderAssetDetail(assetId) {
   const layerActions = document.getElementById("asset-layer-actions");
   const sizesSection = document.getElementById("asset-sizes-section");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -2300,7 +2441,7 @@ function renderAssetDetail(assetId) {
     () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber)
   );
-  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, asset, layersController);
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
   activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {

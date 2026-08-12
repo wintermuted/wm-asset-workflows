@@ -564,6 +564,37 @@
   display: none;
 }
 
+.asset-primary-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.asset-primary-guides[hidden] {
+  display: none;
+}
+
+.asset-alignment-guide {
+  position: absolute;
+  background: #00e5ff;
+  box-shadow: 0 0 2px rgba(0, 229, 255, 0.8);
+}
+
+.asset-alignment-guide--v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.asset-alignment-guide--h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
 .asset-resize-handle {
   position: absolute;
   width: 9px;
