@@ -649,10 +649,11 @@ function describeSvgLayers(elements) {
   return `${layers.length === 1 ? "element" : "elements"} ${summary}`;
 }
 
-function renderAssetPrimarySvg(root, asset) {
+function renderAssetPrimarySvg(root, asset, size = 512) {
   root.replaceChildren();
   root.dataset.assetId = asset.id;
-  root.setAttribute("aria-label", `${asset.label} at 512px`);
+  root.style.setProperty("--asset-preview-size", `${size}px`);
+  root.setAttribute("aria-label", `${asset.label} at ${size}px`);
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
@@ -2691,6 +2692,10 @@ function renderAssetDetail(assetId) {
   const primaryTooltip = document.getElementById("asset-primary-tooltip");
   const primaryHandles = document.getElementById("asset-primary-handles");
   const primaryGuides = document.getElementById("asset-primary-guides");
+  const primaryCanvas = document.getElementById("asset-primary-canvas");
+  const primarySizeCaption = document.getElementById("asset-primary-size-caption");
+  const previewSizeSelect = document.getElementById("asset-preview-size-select");
+  const previewSizeListToggle = document.getElementById("asset-preview-size-list-toggle");
   const colorsSection = document.getElementById("asset-detail-colors-section");
   const colorsList = document.getElementById("asset-detail-colors");
   const projectColorsList = document.getElementById("asset-project-colors");
@@ -2704,9 +2709,8 @@ function renderAssetDetail(assetId) {
   const layersList = document.getElementById("asset-detail-layers");
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
   const layerActions = document.getElementById("asset-layer-actions");
-  const sizesSection = document.getElementById("asset-sizes-section");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -2719,7 +2723,9 @@ function renderAssetDetail(assetId) {
   layerEditorPanel.replaceChildren();
   layerActions.hidden = true;
   layerActions.replaceChildren();
-  sizesSection.open = false;
+  primaryCanvas.hidden = false;
+  sizeGrid.hidden = true;
+  previewSizeListToggle.setAttribute("aria-pressed", "false");
   const asset = assetById.get(assetId);
 
   if (!asset) {
@@ -2734,7 +2740,6 @@ function renderAssetDetail(assetId) {
     overview.hidden = true;
     layersSection.hidden = true;
     layerActions.hidden = true;
-    sizesSection.hidden = true;
     return;
   }
 
@@ -2748,8 +2753,17 @@ function renderAssetDetail(assetId) {
   projectLink.title = `Back to ${projectName}`;
   overview.hidden = false;
   layersSection.hidden = false;
-  sizesSection.hidden = false;
-  renderAssetPrimarySvg(primarySvg, asset);
+  const previewSizes = uniqueSortedSizes(asset);
+  const defaultPreviewSize = previewSizes.includes(512) ? 512 : previewSizes.at(-1);
+  previewSizeSelect.replaceChildren(...previewSizes.map((size) => {
+    const option = document.createElement("option");
+    option.value = String(size);
+    option.textContent = `${size}px`;
+    option.selected = size === defaultPreviewSize;
+    return option;
+  }));
+  primarySizeCaption.textContent = `${defaultPreviewSize}px`;
+  renderAssetPrimarySvg(primarySvg, asset, defaultPreviewSize);
   activePrimaryLayerInteractionCleanup?.();
   const primaryInteractionState = { updateTooltip: () => {} };
   const layersController = renderAssetLayers(
@@ -2791,9 +2805,35 @@ function renderAssetDetail(assetId) {
   customColorInput.onchange = addCustomColor;
   renderAssetDiagnostics(diagnostics, asset);
 
-  for (const size of uniqueSortedSizes(asset).filter((value) => value !== 512)) {
-    const card = document.createElement("article");
+  const showCanvasSize = (size) => {
+    previewSizeSelect.value = String(size);
+    primarySizeCaption.textContent = `${size}px`;
+    primarySvg.style.setProperty("--asset-preview-size", `${size}px`);
+    primarySvg.setAttribute("aria-label", `${asset.label} at ${size}px`);
+    primaryCanvas.hidden = false;
+    sizeGrid.hidden = true;
+    previewSizeListToggle.setAttribute("aria-pressed", "false");
+    previewSizeListToggle.innerHTML = '<i data-lucide="grid-2x2" aria-hidden="true"></i>Compare sizes';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  previewSizeSelect.onchange = () => showCanvasSize(Number(previewSizeSelect.value));
+  previewSizeListToggle.onclick = () => {
+    const showingList = !sizeGrid.hidden;
+    primaryCanvas.hidden = !showingList;
+    sizeGrid.hidden = showingList;
+    previewSizeListToggle.setAttribute("aria-pressed", String(!showingList));
+    previewSizeListToggle.innerHTML = showingList
+      ? '<i data-lucide="grid-2x2" aria-hidden="true"></i>Compare sizes'
+      : '<i data-lucide="square" aria-hidden="true"></i>Back to canvas';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  for (const size of previewSizes) {
+    const card = document.createElement("button");
+    card.type = "button";
     card.className = "size-preview-card";
+    card.setAttribute("aria-label", `Show ${asset.label} at ${size}px on the canvas`);
 
     const displaySize = Math.min(size, 220);
     const frameSize = Math.max(displaySize + 32, 120);
@@ -2813,6 +2853,7 @@ function renderAssetDetail(assetId) {
     frame.appendChild(img);
     card.appendChild(frame);
     card.appendChild(caption);
+    card.addEventListener("click", () => showCanvasSize(size));
     sizeGrid.appendChild(card);
   }
 }

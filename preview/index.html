@@ -133,11 +133,22 @@
               </div>
             </aside>
             <div id="asset-primary-preview" class="asset-primary-preview">
-              <div id="asset-primary-svg" class="asset-primary-svg" role="img" aria-label="Asset preview"></div>
-              <div id="asset-primary-guides" class="asset-primary-guides" hidden></div>
-              <div id="asset-primary-tooltip" class="asset-primary-tooltip" role="status" hidden></div>
-              <div id="asset-primary-handles" class="asset-primary-handles" hidden></div>
-              <p class="size-preview-caption">512px</p>
+              <div class="asset-preview-toolbar">
+                <label for="asset-preview-size-select">Canvas size</label>
+                <select id="asset-preview-size-select" class="wm-input" aria-label="Canvas preview size"></select>
+                <button id="asset-preview-size-list-toggle" type="button" class="btn btn-sm" aria-pressed="false">
+                  <i data-lucide="grid-2x2" aria-hidden="true"></i>
+                  Compare sizes
+                </button>
+              </div>
+              <div id="asset-primary-canvas" class="asset-primary-canvas">
+                <div id="asset-primary-svg" class="asset-primary-svg" role="img" aria-label="Asset preview"></div>
+                <div id="asset-primary-guides" class="asset-primary-guides" hidden></div>
+                <div id="asset-primary-tooltip" class="asset-primary-tooltip" role="status" hidden></div>
+                <div id="asset-primary-handles" class="asset-primary-handles" hidden></div>
+                <p id="asset-primary-size-caption" class="size-preview-caption">512px</p>
+              </div>
+              <div id="asset-size-grid" class="asset-size-grid" hidden aria-label="All preview sizes"></div>
             </div>
             <aside id="asset-detail-right-sidebar" class="asset-detail-sidebar asset-detail-sidebar--right" aria-label="Element editor">
               <div class="asset-detail-sidebar-header">
@@ -162,15 +173,6 @@
               </div>
             </aside>
           </div>
-          <details id="asset-sizes-section" class="asset-sizes-section project-collapsible-card">
-            <summary>
-              <h4 id="asset-sizes-heading">Size Previews</h4>
-              <i data-lucide="chevron-down" aria-hidden="true"></i>
-            </summary>
-            <div class="project-collapsible-body" aria-labelledby="asset-sizes-heading">
-              <div id="asset-size-grid" class="asset-size-grid"></div>
-            </div>
-          </details>
         </section>
 
         <section id="source-detail" class="source-detail-page is-hidden">
