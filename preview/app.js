@@ -3679,6 +3679,51 @@ function wireNewProjectModal() {
   });
 }
 
+function wireAssetDetailSidebars() {
+  const sidebars = [
+    {
+      sidebar: document.getElementById("asset-detail-left-sidebar"),
+      toggle: document.getElementById("asset-detail-left-sidebar-toggle"),
+      content: document.getElementById("asset-detail-left-sidebar-content"),
+      storageKey: "wm-assets-left-sidebar-collapsed",
+      collapsedIcon: "panel-left-open",
+      expandedIcon: "panel-left-close",
+      label: "asset analysis"
+    },
+    {
+      sidebar: document.getElementById("asset-detail-right-sidebar"),
+      toggle: document.getElementById("asset-detail-right-sidebar-toggle"),
+      content: document.getElementById("asset-detail-right-sidebar-content"),
+      storageKey: "wm-assets-right-sidebar-collapsed",
+      collapsedIcon: "panel-right-open",
+      expandedIcon: "panel-right-close",
+      label: "element editor"
+    }
+  ];
+
+  for (const { sidebar, toggle, content, storageKey, collapsedIcon, expandedIcon, label } of sidebars) {
+    if (!sidebar || !toggle || !content) continue;
+    const setCollapsed = (collapsed) => {
+      sidebar.classList.toggle("is-collapsed", collapsed);
+      content.inert = collapsed;
+      toggle.setAttribute("aria-expanded", String(!collapsed));
+      toggle.title = `${collapsed ? "Expand" : "Collapse"} ${label}`;
+      toggle.querySelector(".visually-hidden").textContent = `${collapsed ? "Expand" : "Collapse"} ${label}`;
+      const nextIcon = document.createElement("i");
+      nextIcon.dataset.lucide = collapsed ? collapsedIcon : expandedIcon;
+      nextIcon.setAttribute("aria-hidden", "true");
+      toggle.querySelector("[data-lucide], svg")?.replaceWith(nextIcon);
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    };
+    setCollapsed(localStorage.getItem(storageKey) === "true");
+    toggle.addEventListener("click", () => {
+      const collapsed = !sidebar.classList.contains("is-collapsed");
+      localStorage.setItem(storageKey, String(collapsed));
+      setCollapsed(collapsed);
+    });
+  }
+}
+
 async function init() {
   applyThemeFromQuery();
   wireThemeToggle();
@@ -3690,6 +3735,7 @@ async function init() {
   wireProjectRename();
   wireProjectPromptCarousel();
   wireSourceReferenceCopy();
+  wireAssetDetailSidebars();
 
   const [assetManifest, specs] = await Promise.all([
     loadJson("../manifests/assets.json"),
