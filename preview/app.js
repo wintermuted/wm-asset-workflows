@@ -122,8 +122,11 @@ let toastTimeout;
 const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
+const assetLayerSelections = new Map();
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
 const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
 
 function normalizeSvgColor(value) {
   const color = String(value || "").trim();
@@ -190,6 +193,15 @@ function remapAssetLayerEdits(assetId, remap) {
   assetLayerEdits.set(assetId, next);
 }
 
+function refreshAssetSvgMetrics(data, svg) {
+  const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+  data.paintLayers = computePaintLayers(svg);
+  data.paintLayerCount = data.paintLayers.length;
+  data.topmostLayer = graphics.length ? describeGraphicElement(graphics.at(-1), svg) : "None";
+  data.maxGroupDepth = Math.max(0, ...data.paintLayers.map((layer) => layer.groupDepth));
+  data.groupCount = svg.querySelectorAll("g").length;
+}
+
 function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
   if (fromNumber === toNumber) return;
   loadAssetSvgData(asset.source).then((data) => {
@@ -207,11 +219,132 @@ function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
       if (oldNumber) remap.set(oldNumber, index + 1);
     });
     remapAssetLayerEdits(asset.id, remap);
-    data.paintLayers = computePaintLayers(svg);
-    data.paintLayerCount = data.paintLayers.length;
-    data.topmostLayer = newGraphics.length ? describeGraphicElement(newGraphics.at(-1), svg) : "None";
-    data.maxGroupDepth = Math.max(0, ...data.paintLayers.map((layer) => layer.groupDepth));
+    refreshAssetSvgMetrics(data, svg);
     onComplete?.();
+  });
+}
+
+function multiplySvgMatrices(left, right) {
+  const [a1, b1, c1, d1, e1, f1] = left;
+  const [a2, b2, c2, d2, e2, f2] = right;
+  return [
+    a1 * a2 + c1 * b2,
+    b1 * a2 + d1 * b2,
+    a1 * c2 + c1 * d2,
+    b1 * c2 + d1 * d2,
+    a1 * e2 + c1 * f2 + e1,
+    b1 * e2 + d1 * f2 + f1
+  ];
+}
+
+function invertSvgMatrix(matrix) {
+  const [a, b, c, d, e, f] = matrix;
+  const determinant = a * d - b * c;
+  if (!determinant) return null;
+  return [
+    d / determinant,
+    -b / determinant,
+    -c / determinant,
+    a / determinant,
+    (c * f - d * e) / determinant,
+    (b * e - a * f) / determinant
+  ];
+}
+
+function svgTransformToMatrix(name, args) {
+  const toRadians = (degrees) => (degrees * Math.PI) / 180;
+  if (name === "matrix") return args.length === 6 ? args : IDENTITY_MATRIX;
+  if (name === "translate") return [1, 0, 0, 1, args[0] || 0, args[1] || 0];
+  if (name === "scale") {
+    const scaleX = args[0] ?? 1;
+    return [scaleX, 0, 0, args[1] ?? scaleX, 0, 0];
+  }
+  if (name === "rotate") {
+    const angle = toRadians(args[0] || 0);
+    const rotation = [Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), 0, 0];
+    if (args.length < 3) return rotation;
+    return multiplySvgMatrices(
+      multiplySvgMatrices([1, 0, 0, 1, args[1], args[2]], rotation),
+      [1, 0, 0, 1, -args[1], -args[2]]
+    );
+  }
+  if (name === "skewX") return [1, 0, Math.tan(toRadians(args[0] || 0)), 1, 0, 0];
+  if (name === "skewY") return [1, Math.tan(toRadians(args[0] || 0)), 0, 1, 0, 0];
+  return IDENTITY_MATRIX;
+}
+
+function parseSvgTransform(value) {
+  let matrix = IDENTITY_MATRIX;
+  for (const [, name, rawArgs] of String(value || "").matchAll(/(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g)) {
+    const args = rawArgs.split(/[\s,]+/).filter(Boolean).map(Number);
+    if (args.some((argument) => !Number.isFinite(argument))) continue;
+    matrix = multiplySvgMatrices(matrix, svgTransformToMatrix(name, args));
+  }
+  return matrix;
+}
+
+// Accumulates transforms from the SVG root down to and including `element`.
+function accumulatedSvgMatrix(element, root) {
+  const chain = [];
+  let node = element;
+  while (node) {
+    chain.unshift(node);
+    if (node === root) break;
+    node = node.parentElement;
+  }
+  return chain.reduce(
+    (matrix, node) => multiplySvgMatrices(matrix, parseSvgTransform(node.getAttribute("transform"))),
+    IDENTITY_MATRIX
+  );
+}
+
+function svgMatrixToString(matrix) {
+  if (matrix.every((value, index) => Math.abs(value - IDENTITY_MATRIX[index]) < 1e-9)) return "";
+  return `matrix(${matrix.map((value) => Number(value.toFixed(6))).join(" ")})`;
+}
+
+// Wraps the selected graphic elements in a new <g>, placed at the topmost
+// selected layer's position so the group keeps that layer's stacking order.
+function combineAssetLayers(asset, layerNumbers, onComplete) {
+  const numbers = [...new Set(layerNumbers)]
+    .filter((number) => Number.isInteger(number) && number > 0)
+    .sort((left, right) => left - right);
+  if (numbers.length < 2) return;
+
+  loadAssetSvgData(asset.source).then((data) => {
+    const svg = data.svg;
+    const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const selected = numbers.map((number) => graphics[number - 1]).filter(Boolean);
+    if (selected.length < 2) return;
+
+    const oldNumberByElement = new Map(graphics.map((element, index) => [element, index + 1]));
+    const group = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "g");
+    selected.at(-1).after(group);
+
+    // Elements pulled out of transformed ancestors keep their rendered position.
+    const inverseDestination = invertSvgMatrix(accumulatedSvgMatrix(group.parentElement, svg));
+    for (const element of selected) {
+      const effective = accumulatedSvgMatrix(element, svg);
+      const preserved = inverseDestination ? multiplySvgMatrices(inverseDestination, effective) : effective;
+      group.appendChild(element);
+      const transform = svgMatrixToString(preserved);
+      if (transform) element.setAttribute("transform", transform);
+      else element.removeAttribute("transform");
+    }
+
+    for (const candidate of Array.from(svg.querySelectorAll("g"))) {
+      if (candidate !== group && !candidate.children.length && !candidate.getAttribute("id")) candidate.remove();
+    }
+
+    const newGraphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const remap = new Map();
+    newGraphics.forEach((element, index) => {
+      const oldNumber = oldNumberByElement.get(element);
+      if (oldNumber) remap.set(oldNumber, index + 1);
+    });
+    remapAssetLayerEdits(asset.id, remap);
+    refreshAssetSvgMetrics(data, svg);
+    onComplete?.(numbers.map((number) => remap.get(number)).filter(Boolean));
   });
 }
 
@@ -558,11 +691,46 @@ function renderAssetDiagnostics(root, asset) {
   });
 }
 
-function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
+function assetLayerSelection(assetId) {
+  if (!assetLayerSelections.has(assetId)) assetLayerSelections.set(assetId, new Set());
+  return assetLayerSelections.get(assetId);
+}
+
+function renderAssetLayerActions(actionsBar, data, onCombine, onClear) {
+  actionsBar.replaceChildren();
+  actionsBar.hidden = data.paintLayerCount < 2;
+
+  const status = document.createElement("p");
+  status.className = "asset-layer-actions-status";
+  status.setAttribute("aria-live", "polite");
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "asset-layer-actions-clear";
+  clearButton.textContent = "Clear";
+  clearButton.title = "Clear layer selection";
+  clearButton.hidden = true;
+  clearButton.addEventListener("click", onClear);
+
+  const combineButton = document.createElement("button");
+  combineButton.type = "button";
+  combineButton.className = "asset-layer-combine-button";
+  combineButton.disabled = true;
+  combineButton.title = "Wrap the selected layers in a group";
+  combineButton.innerHTML = '<i data-lucide="layers" aria-hidden="true"></i><span>Combine layers</span>';
+  combineButton.addEventListener("click", onCombine);
+
+  actionsBar.append(status, clearButton, combineButton);
+  return { status, combineButton, clearButton };
+}
+
+function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
   editorPanel.hidden = true;
   editorPanel.replaceChildren();
+  actionsBar.hidden = true;
+  actionsBar.replaceChildren();
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
@@ -572,7 +740,36 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
     let focusedLayerNumber = null;
     const layerItems = new Map();
     const layerButtons = new Map();
+    const layerCheckboxes = new Map();
     const layerEdits = assetLayerEdits.get(asset.id) || new Map();
+    const selection = assetLayerSelection(asset.id);
+    for (const layerNumber of [...selection]) {
+      if (layerNumber > data.paintLayerCount) selection.delete(layerNumber);
+    }
+    const { status: combineStatus, combineButton, clearButton } = renderAssetLayerActions(actionsBar, data, () => {
+      const combining = [...selection];
+      combineAssetLayers(asset, combining, (combinedNumbers) => {
+        selection.clear();
+        showToast(`Combined ${combinedNumbers.length || combining.length} layers into a group.`);
+        renderAssetDetail(asset.id);
+      });
+    }, () => {
+      selection.clear();
+      syncSelection();
+    });
+    function syncSelection() {
+      for (const [layerNumber, item] of layerItems) {
+        const isSelected = selection.has(layerNumber);
+        item.classList.toggle("is-multi-selected", isSelected);
+        const checkbox = layerCheckboxes.get(layerNumber);
+        if (checkbox) checkbox.checked = isSelected;
+      }
+      combineButton.disabled = selection.size < 2;
+      clearButton.hidden = selection.size === 0;
+      combineStatus.textContent = selection.size < 2
+        ? `Select 2 or more layers to combine.${selection.size ? " 1 selected." : ""}`
+        : `${selection.size} layers selected.`;
+    }
     const syncHighlight = () => {
       const highlightedLayerNumber = hoveredLayerNumber ?? focusedLayerNumber ?? selectedLayerNumber;
       for (const [layerNumber, item] of layerItems) {
@@ -615,6 +812,29 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
           syncHighlight();
         });
       }
+      const selectLabel = document.createElement("label");
+      selectLabel.className = "asset-layer-select";
+      const selectCheckbox = document.createElement("input");
+      selectCheckbox.type = "checkbox";
+      selectCheckbox.className = "asset-layer-select-input";
+      selectCheckbox.checked = selection.has(layer.number);
+      selectCheckbox.setAttribute("aria-label", `Select layer ${layer.number} for combining`);
+      selectLabel.title = `Select layer ${layer.number} for combining`;
+      selectLabel.addEventListener("click", (event) => event.stopPropagation());
+      selectCheckbox.addEventListener("click", (event) => event.stopPropagation());
+      selectCheckbox.addEventListener("change", () => {
+        if (selectCheckbox.checked) selection.add(layer.number);
+        else selection.delete(layer.number);
+        syncSelection();
+      });
+      // Keep row drag-and-drop from hijacking checkbox interaction.
+      const restoreDraggable = () => { item.draggable = true; };
+      selectLabel.addEventListener("pointerdown", () => { item.draggable = false; });
+      selectLabel.addEventListener("pointerup", restoreDraggable);
+      selectLabel.addEventListener("pointercancel", restoreDraggable);
+      item.addEventListener("mouseleave", restoreDraggable);
+      selectLabel.appendChild(selectCheckbox);
+
       const identity = document.createElement("div");
       identity.className = "asset-layer-identity";
       const elementName = document.createElement("code");
@@ -951,14 +1171,17 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       });
       details.appendChild(paints);
       details.append(opacityValue, editButton, opacityEditor);
+      item.appendChild(selectLabel);
       item.appendChild(number);
       item.appendChild(reorder);
       item.appendChild(identity);
       item.appendChild(details);
       root.appendChild(item);
       layerItems.set(layer.number, item);
+      layerCheckboxes.set(layer.number, selectCheckbox);
       if (onHighlight) layerButtons.set(layer.number, number);
     }
+    syncSelection();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Layer information unavailable";
@@ -1307,9 +1530,10 @@ function renderAssetDetail(assetId) {
   const layersSection = document.getElementById("asset-detail-layers-section");
   const layersList = document.getElementById("asset-detail-layers");
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
+  const layerActions = document.getElementById("asset-layer-actions");
   const sizesSection = document.getElementById("asset-sizes-section");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !sizesSection || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizesSection || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -1320,6 +1544,8 @@ function renderAssetDetail(assetId) {
   layersList.textContent = "";
   layerEditorPanel.hidden = true;
   layerEditorPanel.replaceChildren();
+  layerActions.hidden = true;
+  layerActions.replaceChildren();
   sizesSection.open = false;
   const asset = assetById.get(assetId);
 
@@ -1332,6 +1558,7 @@ function renderAssetDetail(assetId) {
     projectLink.title = "Back to all assets";
     overview.hidden = true;
     layersSection.hidden = true;
+    layerActions.hidden = true;
     sizesSection.hidden = true;
     return;
   }
@@ -1376,6 +1603,7 @@ function renderAssetDetail(assetId) {
   renderAssetLayers(
     layersList,
     layerEditorPanel,
+    layerActions,
     asset,
     (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
     () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id)
