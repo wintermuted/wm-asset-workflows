@@ -182,6 +182,27 @@ function computePaintLayers(svg) {
   });
 }
 
+// Builds a nested tree of elements/groups in document order so the panel can render
+// SVG <g> nesting as real outlined sub-lists instead of a flat "group depth" label.
+// Traversal order matches computePaintLayers' querySelectorAll order (depth-first,
+// document order), so element numbers assigned here line up with `layer.number`.
+function buildElementTree(container, counter = { value: 0 }) {
+  const nodes = [];
+  for (const child of container.children) {
+    if (child.matches(GRAPHIC_ELEMENT_SELECTOR)) {
+      counter.value += 1;
+      nodes.push({ type: "element", number: counter.value });
+    } else if (child.localName === "g") {
+      nodes.push({ type: "group", element: child, children: buildElementTree(child, counter) });
+    } else {
+      // Non-<g> containers (defs, clipPath, symbol, ...) aren't a visual group,
+      // but their descendants still count toward numbering, so flatten them in.
+      nodes.push(...buildElementTree(child, counter));
+    }
+  }
+  return nodes;
+}
+
 function remapAssetLayerEdits(assetId, remap) {
   const edits = assetLayerEdits.get(assetId);
   if (!edits) return;
@@ -489,7 +510,7 @@ function describeSvgLayers(elements) {
     }
   }
   const summary = ranges.map(([start, end]) => start === end ? String(start) : `${start}-${end}`).join(", ");
-  return `${layers.length === 1 ? "layer" : "layers"} ${summary}`;
+  return `${layers.length === 1 ? "element" : "elements"} ${summary}`;
 }
 
 function renderAssetPrimarySvg(root, asset) {
@@ -666,9 +687,9 @@ function renderAssetDiagnostics(root, asset) {
     const diagnostics = [
       ["ViewBox", data.viewBox],
       ["Source size", `${data.width} × ${data.height}`],
-      ["Paint layers", `${data.paintLayerCount} primitives`],
-      ["Layer order", "DOM order, bottom → top"],
-      ["Topmost layer", data.topmostLayer],
+      ["Elements", `${data.paintLayerCount} primitives`],
+      ["Element order", "DOM order, bottom → top"],
+      ["Topmost element", data.topmostLayer],
       ["Paths", `${data.pathCount} (${data.closedPathCount} closed, ${data.pathCount - data.closedPathCount} open)`],
       ["Path subpaths", String(data.pathSubpathCount)],
       ["Path commands", String(data.pathCommandCount)],
@@ -708,7 +729,7 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear) {
   clearButton.type = "button";
   clearButton.className = "asset-layer-actions-clear";
   clearButton.textContent = "Clear";
-  clearButton.title = "Clear layer selection";
+  clearButton.title = "Clear element selection";
   clearButton.hidden = true;
   clearButton.addEventListener("click", onClear);
 
@@ -716,8 +737,8 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear) {
   combineButton.type = "button";
   combineButton.className = "asset-layer-combine-button";
   combineButton.disabled = true;
-  combineButton.title = "Wrap the selected layers in a group";
-  combineButton.innerHTML = '<i data-lucide="layers" aria-hidden="true"></i><span>Combine layers</span>';
+  combineButton.title = "Wrap the selected elements in a group";
+  combineButton.innerHTML = '<i data-lucide="layers" aria-hidden="true"></i><span>Combine elements</span>';
   combineButton.addEventListener("click", onCombine);
 
   actionsBar.append(status, clearButton, combineButton);
@@ -750,7 +771,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const combining = [...selection];
       combineAssetLayers(asset, combining, (combinedNumbers) => {
         selection.clear();
-        showToast(`Combined ${combinedNumbers.length || combining.length} layers into a group.`);
+        showToast(`Combined ${combinedNumbers.length || combining.length} elements into a group.`);
         renderAssetDetail(asset.id);
       });
     }, () => {
@@ -767,8 +788,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       combineButton.disabled = selection.size < 2;
       clearButton.hidden = selection.size === 0;
       combineStatus.textContent = selection.size < 2
-        ? `Select 2 or more layers to combine.${selection.size ? " 1 selected." : ""}`
-        : `${selection.size} layers selected.`;
+        ? `Select 2 or more elements to combine.${selection.size ? " 1 selected." : ""}`
+        : `${selection.size} elements selected.`;
     }
     const syncHighlight = () => {
       const highlightedLayerNumber = hoveredLayerNumber ?? focusedLayerNumber ?? selectedLayerNumber;
@@ -779,7 +800,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       }
       onHighlight(highlightedLayerNumber, highlightedLayerNumber !== null);
     };
-    for (const layer of [...data.paintLayers].reverse()) {
+    const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
+    function renderElementRow(layer) {
       const item = document.createElement("li");
       item.value = layer.number;
       let toggleSelection;
@@ -800,7 +822,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       number.textContent = String(layer.number);
       if (onHighlight) {
         number.type = "button";
-        number.setAttribute("aria-label", `Select layer ${layer.number}`);
+        number.setAttribute("aria-label", `Select element ${layer.number}`);
         number.setAttribute("aria-pressed", "false");
         number.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -818,8 +840,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       selectCheckbox.type = "checkbox";
       selectCheckbox.className = "asset-layer-select-input";
       selectCheckbox.checked = selection.has(layer.number);
-      selectCheckbox.setAttribute("aria-label", `Select layer ${layer.number} for combining`);
-      selectLabel.title = `Select layer ${layer.number} for combining`;
+      selectCheckbox.setAttribute("aria-label", `Select element ${layer.number} for combining`);
+      selectLabel.title = `Select element ${layer.number} for combining`;
       selectLabel.addEventListener("click", (event) => event.stopPropagation());
       selectCheckbox.addEventListener("click", (event) => event.stopPropagation());
       selectCheckbox.addEventListener("change", () => {
@@ -845,18 +867,13 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
         id.textContent = `#${layer.id}`;
         identity.appendChild(id);
       }
-      if (layer.groupDepth) {
-        const depth = document.createElement("span");
-        depth.textContent = `group depth ${layer.groupDepth}`;
-        identity.appendChild(depth);
-      }
 
       const reorder = document.createElement("span");
       reorder.className = "asset-layer-reorder";
       const moveUpButton = document.createElement("button");
       moveUpButton.type = "button";
       moveUpButton.className = "asset-layer-reorder-button";
-      moveUpButton.setAttribute("aria-label", `Move layer ${layer.number} up`);
+      moveUpButton.setAttribute("aria-label", `Move element ${layer.number} up`);
       moveUpButton.innerHTML = '<i data-lucide="chevron-up" aria-hidden="true"></i>';
       moveUpButton.disabled = layer.number >= data.paintLayerCount;
       moveUpButton.addEventListener("click", (event) => {
@@ -866,7 +883,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const moveDownButton = document.createElement("button");
       moveDownButton.type = "button";
       moveDownButton.className = "asset-layer-reorder-button";
-      moveDownButton.setAttribute("aria-label", `Move layer ${layer.number} down`);
+      moveDownButton.setAttribute("aria-label", `Move element ${layer.number} down`);
       moveDownButton.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
       moveDownButton.disabled = layer.number <= 1;
       moveDownButton.addEventListener("click", (event) => {
@@ -940,7 +957,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           colorInput.type = "color";
           colorInput.id = `asset-layer-color-input-${asset.id}-${layer.number}-${property}`;
           colorInput.value = color;
-          colorInput.setAttribute("aria-label", `Layer ${layer.number} ${property} color`);
+          colorInput.setAttribute("aria-label", `Element ${layer.number} ${property} color`);
           colorInput.addEventListener("click", (event) => event.stopPropagation());
           colorInput.addEventListener("keydown", (event) => event.stopPropagation());
           colorInput.addEventListener("input", () => {
@@ -961,7 +978,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       opacityEditor.id = `asset-layer-opacity-editor-${asset.id}-${layer.number}`;
       opacityEditor.setAttribute("popover", "auto");
       opacityEditor.setAttribute("role", "dialog");
-      opacityEditor.setAttribute("aria-label", `Edit layer ${layer.number} opacity`);
+      opacityEditor.setAttribute("aria-label", `Edit element ${layer.number} opacity`);
       const opacityControl = document.createElement("label");
       opacityControl.className = "asset-layer-opacity-control";
       opacityControl.textContent = "Opacity";
@@ -982,7 +999,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       opacityInput.step = "0.01";
       opacityInput.value = String(currentEdits.opacity ?? (layer.opacity === "" ? 1 : Number(layer.opacity)));
       opacitySlider.value = opacityInput.value;
-      opacityInput.setAttribute("aria-label", `Layer ${layer.number} opacity`);
+      opacityInput.setAttribute("aria-label", `Element ${layer.number} opacity`);
       opacityInput.addEventListener("click", (event) => event.stopPropagation());
       opacityInput.addEventListener("keydown", (event) => event.stopPropagation());
       let attrOpacityInput = null;
@@ -1010,7 +1027,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const opacityValue = document.createElement("button");
       opacityValue.type = "button";
       opacityValue.className = "asset-layer-opacity-value";
-      opacityValue.setAttribute("aria-label", `Edit layer ${layer.number} opacity`);
+      opacityValue.setAttribute("aria-label", `Edit element ${layer.number} opacity`);
       opacityValue.setAttribute("aria-controls", opacityEditor.id);
       opacityValue.setAttribute("aria-expanded", "false");
       opacityValue.title = "Edit opacity";
@@ -1026,12 +1043,12 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const editorHeader = document.createElement("div");
       editorHeader.className = "asset-layer-edit-mode-header";
       const editorTitle = document.createElement("strong");
-      editorTitle.textContent = `Layer ${layer.number}`;
+      editorTitle.textContent = `Element ${layer.number}`;
       const closeButton = document.createElement("button");
       closeButton.type = "button";
       closeButton.className = "asset-layer-editor-close";
-      closeButton.setAttribute("aria-label", "Close layer editor");
-      closeButton.title = "Close layer editor";
+      closeButton.setAttribute("aria-label", "Close element editor");
+      closeButton.title = "Close element editor";
       closeButton.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
       editorHeader.append(editorTitle, closeButton);
       const moveControls = document.createElement("div");
@@ -1040,12 +1057,12 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       xInput.type = "number";
       xInput.step = "1";
       xInput.value = String(currentEdits.offsetX || 0);
-      xInput.setAttribute("aria-label", `Layer ${layer.number} horizontal offset`);
+      xInput.setAttribute("aria-label", `Element ${layer.number} horizontal offset`);
       const yInput = document.createElement("input");
       yInput.type = "number";
       yInput.step = "1";
       yInput.value = String(currentEdits.offsetY || 0);
-      yInput.setAttribute("aria-label", `Layer ${layer.number} vertical offset`);
+      yInput.setAttribute("aria-label", `Element ${layer.number} vertical offset`);
       const setPosition = (x, y) => {
         if (!Number.isFinite(x) || !Number.isFinite(y)) return;
         xInput.value = String(x);
@@ -1059,7 +1076,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
         const button = document.createElement("button");
         button.type = "button";
         button.className = `asset-layer-nudge-button asset-layer-nudge-button--${direction}`;
-        button.setAttribute("aria-label", `Move layer ${direction}`);
+        button.setAttribute("aria-label", `Move element ${direction}`);
         button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
         button.addEventListener("click", () => setPosition(Number(xInput.value) + xDelta, Number(yInput.value) + yDelta));
         return button;
@@ -1101,7 +1118,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           colorInput.type = "color";
           colorInput.className = "asset-layer-color-input";
           colorInput.value = normalizedColor;
-          colorInput.setAttribute("aria-label", `Layer ${layer.number} ${name} color`);
+          colorInput.setAttribute("aria-label", `Element ${layer.number} ${name} color`);
           colorInput.addEventListener("click", (event) => event.stopPropagation());
           colorInput.addEventListener("keydown", (event) => event.stopPropagation());
           const valueText = document.createElement("code");
@@ -1121,7 +1138,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           const { field, input } = createSteppedNumberField({
             value: String(initialOpacity),
             step: "0.01",
-            ariaLabel: `Layer ${layer.number} opacity`,
+            ariaLabel: `Element ${layer.number} opacity`,
             onChange: (next) => setOpacity(Math.min(1, Math.max(0, next)))
           });
           attrOpacityInput = input;
@@ -1131,7 +1148,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           const { field } = createSteppedNumberField({
             value: currentAttrs[name] ?? value,
             step,
-            ariaLabel: `Layer ${layer.number} ${name}`,
+            ariaLabel: `Element ${layer.number} ${name}`,
             onChange: (next) => {
               updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
               onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
@@ -1147,10 +1164,10 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const editButton = document.createElement("button");
       editButton.type = "button";
       editButton.className = "asset-layer-edit-button";
-      editButton.setAttribute("aria-label", `Edit layer ${layer.number}`);
+      editButton.setAttribute("aria-label", `Edit element ${layer.number}`);
       editButton.setAttribute("aria-controls", layerEditor.id);
       editButton.setAttribute("aria-expanded", "false");
-      editButton.title = `Edit layer ${layer.number}`;
+      editButton.title = `Edit element ${layer.number}`;
       editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
       editButton.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1176,15 +1193,44 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       item.appendChild(reorder);
       item.appendChild(identity);
       item.appendChild(details);
-      root.appendChild(item);
       layerItems.set(layer.number, item);
       layerCheckboxes.set(layer.number, selectCheckbox);
       if (onHighlight) layerButtons.set(layer.number, number);
+      return item;
     }
+
+    function renderElementNodes(nodes, container) {
+      for (const node of [...nodes].reverse()) {
+        if (node.type === "group") {
+          const groupItem = document.createElement("li");
+          groupItem.className = "asset-element-group";
+          const header = document.createElement("div");
+          header.className = "asset-element-group-header";
+          const tag = document.createElement("code");
+          tag.textContent = "<g>";
+          header.appendChild(tag);
+          const groupId = node.element.getAttribute("id");
+          if (groupId) {
+            const id = document.createElement("code");
+            id.textContent = `#${groupId}`;
+            header.appendChild(id);
+          }
+          const nestedList = document.createElement("ol");
+          nestedList.className = "asset-element-group-children";
+          renderElementNodes(node.children, nestedList);
+          groupItem.append(header, nestedList);
+          container.appendChild(groupItem);
+        } else {
+          const layer = layerByNumber.get(node.number);
+          if (layer) container.appendChild(renderElementRow(layer));
+        }
+      }
+    }
+    renderElementNodes(buildElementTree(data.svg), root);
     syncSelection();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }).catch(() => {
-    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Layer information unavailable";
+    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Element information unavailable";
   });
 }
 

@@ -631,6 +631,35 @@
   display: none;
 }
 
+/* ── Nested groups (SVG <g>) rendered as an outlined sub-list ───────────── */
+
+.asset-element-group {
+  display: block;
+  padding: 0.5rem 0.55rem 0.6rem;
+  border: 1px dashed var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-xs);
+  background: transparent;
+  cursor: default;
+}
+
+.asset-element-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--wm-color-text-muted);
+}
+
+.asset-element-group-header code {
+  font-size: 0.72rem;
+}
+
+.asset-element-group-children {
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--wm-color-border-strong);
+}
+
 .asset-detail-layers li {
   display: grid;
   grid-template-columns: max-content max-content max-content minmax(4rem, auto) minmax(0, 1fr);
