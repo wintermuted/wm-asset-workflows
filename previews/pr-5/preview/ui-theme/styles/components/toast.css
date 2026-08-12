@@ -1,0 +1,120 @@
+/* ── Toast Notification ───────────────────────────────────────────────────────
+ * Fixed bottom-center notification bar. Manage show/hide with JS by toggling
+ * .wm-toast-visible. Use tonal modifiers for semantic intent.
+ *
+ * Markup:
+ *   <div class="wm-toast wm-toast-success wm-toast-visible" role="status" aria-live="polite">
+ *     Pattern loaded successfully.
+ *     <button class="wm-toast-dismiss" type="button" aria-label="Dismiss">&#x2715;</button>
+ *   </div>
+ *
+ * Show: add .wm-toast-visible
+ * Hide: remove .wm-toast-visible (or add .wm-toast-hiding for fade-out animation)
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.wm-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(1rem);
+  z-index: 1100;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem 0.65rem 1.1rem;
+  min-width: 240px;
+  max-width: min(480px, calc(100vw - 2rem));
+  background: var(--wm-color-surface-solid);
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--wm-color-text-secondary);
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* ── Visible state ───────────────────────────────────────────────────────── */
+
+.wm-toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+/* ── Hiding (fade out before removal) ───────────────────────────────────── */
+
+.wm-toast-hiding {
+  opacity: 0;
+  transform: translateX(-50%) translateY(0.5rem);
+  pointer-events: none;
+}
+
+/* ── Dismiss button ──────────────────────────────────────────────────────── */
+
+.wm-toast-dismiss {
+  background: none;
+  border: none;
+  padding: 0.2rem 0.35rem;
+  margin-left: auto;
+  border-radius: var(--wm-radius-xs);
+  color: var(--wm-color-text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s ease, color 0.1s ease;
+
+  /* override base.css width:100% on button */
+  width: auto;
+}
+
+.wm-toast-dismiss:hover {
+  background: var(--wm-color-surface-strong);
+  color: var(--wm-color-text);
+}
+
+/* ── Tonal variants ──────────────────────────────────────────────────────── */
+
+.wm-toast-success {
+  background: var(--wm-color-success-soft);
+  border-color: var(--wm-color-success-border);
+  color: var(--wm-color-success);
+}
+
+.wm-toast-danger {
+  background: var(--wm-color-danger-soft);
+  border-color: var(--wm-color-danger-border);
+  color: var(--wm-color-danger);
+}
+
+.wm-toast-warning {
+  background: var(--wm-color-warning-soft);
+  border-color: var(--wm-color-warning-border);
+  color: var(--wm-color-warning);
+}
+
+.wm-toast-info {
+  background: var(--wm-color-accent-soft);
+  border-color: var(--wm-color-accent-border);
+  color: var(--wm-color-accent);
+}
+
+/* Dismiss button inherits tonal color; override to stay readable */
+.wm-toast-success .wm-toast-dismiss,
+.wm-toast-danger .wm-toast-dismiss,
+.wm-toast-warning .wm-toast-dismiss,
+.wm-toast-info .wm-toast-dismiss {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.wm-toast-success .wm-toast-dismiss:hover,
+.wm-toast-danger .wm-toast-dismiss:hover,
+.wm-toast-warning .wm-toast-dismiss:hover,
+.wm-toast-info .wm-toast-dismiss:hover {
+  opacity: 1;
+  background: rgb(0 0 0 / 6%);
+}
