@@ -45,12 +45,6 @@ jobs:
         with:
           path: wm-asset-workflows
 
-      - name: Checkout ui-theme
-        uses: actions/checkout@v4
-        with:
-          repository: wintermuted/ui-theme
-          path: wintermuted-ui-theme
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -75,8 +69,10 @@ jobs:
           cp wm-asset-workflows/preview/spec-index.json _site/preview/
           cp wm-asset-workflows/manifests/assets.json _site/manifests/
           cp -R wm-asset-workflows/assets/svg/. _site/assets/svg/
-          sed -i 's|href="/node_modules/@wintermuted/ui-theme/index.css"|href="./ui-theme.css"|g' _site/preview/index.html
-          cp wintermuted-ui-theme/index.css _site/preview/ui-theme.css
+          sed -i 's|href="/node_modules/@wintermuted/ui-theme/index.css"|href="./ui-theme/index.css"|g' _site/preview/index.html
+          mkdir -p _site/preview/ui-theme
+          cp wm-asset-workflows/node_modules/@wintermuted/ui-theme/index.css _site/preview/ui-theme/
+          cp -R wm-asset-workflows/node_modules/@wintermuted/ui-theme/styles _site/preview/ui-theme/
           touch _site/.nojekyll
 
       - name: Configure git identity
