@@ -126,6 +126,14 @@ const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
 // contains), so the panel can auto-focus that group's name field once rendered.
 const assetPendingGroupFocus = new Map();
+// Tracks an element just created via "Add element" (asset id -> element number),
+// so the panel can select/highlight it once rendered.
+const assetPendingElementSelection = new Map();
+const NEW_ELEMENT_SHAPES = [
+  { value: "rect", label: "Rectangle" },
+  { value: "circle", label: "Circle" },
+  { value: "line", label: "Line" }
+];
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
 const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -217,6 +225,19 @@ function remapAssetLayerEdits(assetId, remap) {
   assetLayerEdits.set(assetId, next);
 }
 
+// Keeps the multi-select checkbox selection valid after operations that renumber
+// elements (reorder, combine, add), same pattern as remapAssetLayerEdits.
+function remapAssetLayerSelection(assetId, remap) {
+  const selection = assetLayerSelections.get(assetId);
+  if (!selection) return;
+  const next = new Set();
+  for (const oldNumber of selection) {
+    const newNumber = remap.get(oldNumber);
+    if (newNumber) next.add(newNumber);
+  }
+  assetLayerSelections.set(assetId, next);
+}
+
 function refreshAssetSvgMetrics(data, svg) {
   const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
   data.paintLayers = computePaintLayers(svg);
@@ -243,6 +264,7 @@ function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
       if (oldNumber) remap.set(oldNumber, index + 1);
     });
     remapAssetLayerEdits(asset.id, remap);
+    remapAssetLayerSelection(asset.id, remap);
     refreshAssetSvgMetrics(data, svg);
     onComplete?.();
   });
@@ -386,8 +408,76 @@ function combineAssetLayers(asset, layerNumbers, onComplete) {
       if (oldNumber) remap.set(oldNumber, index + 1);
     });
     remapAssetLayerEdits(asset.id, remap);
+    remapAssetLayerSelection(asset.id, remap);
     refreshAssetSvgMetrics(data, svg);
     onComplete?.(numbers.map((number) => remap.get(number)).filter(Boolean));
+  });
+}
+
+// Computes a centered default position/size for a newly created shape, based on
+// the SVG's viewBox (falling back to width/height attrs, then a 512x512 default).
+function getAssetViewBoxBounds(svg) {
+  const baseVal = svg.viewBox?.baseVal;
+  if (baseVal && (baseVal.width || baseVal.height)) {
+    return { minX: baseVal.x, minY: baseVal.y, width: baseVal.width, height: baseVal.height };
+  }
+  const width = Number(svg.getAttribute("width")) || 512;
+  const height = Number(svg.getAttribute("height")) || 512;
+  return { minX: 0, minY: 0, width, height };
+}
+
+function createDefaultShapeElement(svg, shape) {
+  const { minX, minY, width, height } = getAssetViewBoxBounds(svg);
+  const size = Math.max(1, Math.min(width, height) * 0.2);
+  const centerX = minX + width / 2;
+  const centerY = minY + height / 2;
+  const element = svg.ownerDocument.createElementNS(SVG_NAMESPACE, shape);
+  element.setAttribute("fill", shape === "line" ? "none" : "#6366F1");
+  if (shape === "rect") {
+    element.setAttribute("x", String(centerX - size / 2));
+    element.setAttribute("y", String(centerY - size / 2));
+    element.setAttribute("width", String(size));
+    element.setAttribute("height", String(size));
+  } else if (shape === "circle") {
+    element.setAttribute("cx", String(centerX));
+    element.setAttribute("cy", String(centerY));
+    element.setAttribute("r", String(size / 2));
+  } else if (shape === "line") {
+    element.setAttribute("x1", String(centerX - size / 2));
+    element.setAttribute("y1", String(centerY));
+    element.setAttribute("x2", String(centerX + size / 2));
+    element.setAttribute("y2", String(centerY));
+    element.setAttribute("stroke", "#6366F1");
+    element.setAttribute("stroke-width", "2");
+  }
+  return element;
+}
+
+// Creates a new shape element as the topmost child of `container` (the SVG root
+// for a global-topmost element, or an existing <g> to add inside that group),
+// then remaps edits/selection just like reorder/combine. `onComplete` receives
+// the new element's post-remap number (or undefined if the create failed).
+function createAssetElement(asset, shape, container, onComplete) {
+  loadAssetSvgData(asset.source).then((data) => {
+    const svg = data.svg;
+    const target = container && svg.contains(container) ? container : svg;
+    const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const oldNumberByElement = new Map(graphics.map((element, index) => [element, index + 1]));
+    const element = createDefaultShapeElement(svg, shape);
+    target.appendChild(element);
+
+    const newGraphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const remap = new Map();
+    let newNumber;
+    newGraphics.forEach((graphic, index) => {
+      const oldNumber = oldNumberByElement.get(graphic);
+      if (oldNumber) remap.set(oldNumber, index + 1);
+      if (graphic === element) newNumber = index + 1;
+    });
+    remapAssetLayerEdits(asset.id, remap);
+    remapAssetLayerSelection(asset.id, remap);
+    refreshAssetSvgMetrics(data, svg);
+    onComplete?.(newNumber);
   });
 }
 
@@ -739,9 +829,35 @@ function assetLayerSelection(assetId) {
   return assetLayerSelections.get(assetId);
 }
 
-function renderAssetLayerActions(actionsBar, data, onCombine, onClear) {
+function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
   actionsBar.replaceChildren();
-  actionsBar.hidden = data.paintLayerCount < 2;
+  actionsBar.hidden = false;
+
+  const addGroup = document.createElement("div");
+  addGroup.className = "asset-layer-add-group";
+
+  const shapeSelect = document.createElement("select");
+  shapeSelect.className = "asset-layer-add-shape";
+  shapeSelect.setAttribute("aria-label", "New element shape");
+  for (const { value, label } of NEW_ELEMENT_SHAPES) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    shapeSelect.appendChild(option);
+  }
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "asset-layer-add-button";
+  addButton.title = "Add a new element at the topmost layer";
+  addButton.innerHTML = '<i data-lucide="plus" aria-hidden="true"></i><span>Add element</span>';
+  addButton.addEventListener("click", () => onAdd(shapeSelect.value));
+
+  addGroup.append(shapeSelect, addButton);
+
+  const combineGroup = document.createElement("div");
+  combineGroup.className = "asset-layer-combine-group";
+  combineGroup.hidden = data.paintLayerCount < 2;
 
   const status = document.createElement("p");
   status.className = "asset-layer-actions-status";
@@ -763,8 +879,9 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear) {
   combineButton.innerHTML = '<i data-lucide="layers" aria-hidden="true"></i><span>Combine elements</span>';
   combineButton.addEventListener("click", onCombine);
 
-  actionsBar.append(status, clearButton, combineButton);
-  return { status, combineButton, clearButton };
+  combineGroup.append(status, clearButton, combineButton);
+  actionsBar.append(addGroup, combineGroup);
+  return { status, combineButton, clearButton, shapeSelect };
 }
 
 function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit) {
@@ -778,7 +895,9 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
     root.textContent = "";
-    let selectedLayerNumber = null;
+    const pendingSelection = assetPendingElementSelection.get(asset.id);
+    if (pendingSelection !== undefined) assetPendingElementSelection.delete(asset.id);
+    let selectedLayerNumber = pendingSelection ?? null;
     let hoveredLayerNumber = null;
     let focusedLayerNumber = null;
     const layerItems = new Map();
@@ -789,6 +908,13 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     for (const layerNumber of [...selection]) {
       if (layerNumber > data.paintLayerCount) selection.delete(layerNumber);
     }
+    const addElement = (shape, container) => {
+      createAssetElement(asset, shape, container, (newNumber) => {
+        if (newNumber) assetPendingElementSelection.set(asset.id, newNumber);
+        showToast(`Added a new ${shape} element.`);
+        renderAssetDetail(asset.id);
+      });
+    };
     const { status: combineStatus, combineButton, clearButton } = renderAssetLayerActions(actionsBar, data, () => {
       const combining = [...selection];
       combineAssetLayers(asset, combining, (combinedNumbers) => {
@@ -800,7 +926,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     }, () => {
       selection.clear();
       syncSelection();
-    });
+    }, (shape) => addElement(shape, data.svg));
     function syncSelection() {
       for (const [layerNumber, item] of layerItems) {
         const isSelected = selection.has(layerNumber);
@@ -1248,6 +1374,18 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
             nameInput.value = nextId;
           });
           header.appendChild(nameInput);
+          const addToGroupButton = document.createElement("button");
+          addToGroupButton.type = "button";
+          addToGroupButton.className = "asset-element-group-add-button";
+          addToGroupButton.title = "Add a new element inside this group";
+          addToGroupButton.setAttribute("aria-label", "Add element to this group");
+          addToGroupButton.innerHTML = '<i data-lucide="plus" aria-hidden="true"></i>';
+          addToGroupButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const shapeSelect = actionsBar.querySelector(".asset-layer-add-shape");
+            addElement(shapeSelect?.value || "rect", node.element);
+          });
+          header.appendChild(addToGroupButton);
           const nestedList = document.createElement("ol");
           nestedList.className = "asset-element-group-children";
           renderElementNodes(node.children, nestedList);
@@ -1273,6 +1411,10 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     }
     renderElementNodes(buildElementTree(data.svg), root);
     syncSelection();
+    if (selectedLayerNumber !== null) {
+      syncHighlight();
+      layerItems.get(selectedLayerNumber)?.scrollIntoView({ block: "nearest" });
+    }
     if (typeof lucide !== "undefined") lucide.createIcons();
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Element information unavailable";
