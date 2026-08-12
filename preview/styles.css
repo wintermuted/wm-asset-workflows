@@ -655,6 +655,33 @@
   font-size: 0.72rem;
 }
 
+.asset-element-group-name {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--wm-color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.asset-element-group-name::placeholder {
+  color: var(--wm-color-text-muted);
+  font-style: italic;
+}
+
+.asset-element-group-name:hover {
+  border-color: var(--wm-color-border-strong);
+}
+
+.asset-element-group-name:focus {
+  outline: none;
+  border-color: var(--wm-color-accent, var(--wm-color-border-strong));
+  background: var(--wm-color-surface);
+}
+
 .asset-element-group-children {
   padding-left: 0.7rem;
   border-left: 1px solid var(--wm-color-border-strong);

@@ -123,6 +123,9 @@ const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
 const assetLayerSelections = new Map();
+// Tracks a group just created by "Combine" (asset id -> Set of element numbers it
+// contains), so the panel can auto-focus that group's name field once rendered.
+const assetPendingGroupFocus = new Map();
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
 const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -322,6 +325,25 @@ function accumulatedSvgMatrix(element, root) {
 function svgMatrixToString(matrix) {
   if (matrix.every((value, index) => Math.abs(value - IDENTITY_MATRIX[index]) < 1e-9)) return "";
   return `matrix(${matrix.map((value) => Number(value.toFixed(6))).join(" ")})`;
+}
+
+// Turns free-text input into a valid SVG/XML `id`: strips characters outside the
+// permitted set, collapses whitespace to hyphens, and ensures a legal leading
+// character (ids must start with a letter or underscore).
+function sanitizeSvgId(raw) {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return "";
+  let id = trimmed.replace(/\s+/g, "-").replace(/[^A-Za-z0-9_:.-]/g, "");
+  if (!id) return "";
+  if (!/^[A-Za-z_]/.test(id)) id = `g-${id}`;
+  return id;
+}
+
+// Recursively collects the element numbers a tree node (and its nested groups)
+// contains, so a freshly combined group can be matched after a re-render.
+function collectElementNumbers(node) {
+  if (node.type === "element") return [node.number];
+  return node.children.flatMap(collectElementNumbers);
 }
 
 // Wraps the selected graphic elements in a new <g>, placed at the topmost
@@ -771,6 +793,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const combining = [...selection];
       combineAssetLayers(asset, combining, (combinedNumbers) => {
         selection.clear();
+        if (combinedNumbers?.length) assetPendingGroupFocus.set(asset.id, new Set(combinedNumbers));
         showToast(`Combined ${combinedNumbers.length || combining.length} elements into a group.`);
         renderAssetDetail(asset.id);
       });
@@ -1209,17 +1232,39 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           const tag = document.createElement("code");
           tag.textContent = "<g>";
           header.appendChild(tag);
-          const groupId = node.element.getAttribute("id");
-          if (groupId) {
-            const id = document.createElement("code");
-            id.textContent = `#${groupId}`;
-            header.appendChild(id);
-          }
+          const nameInput = document.createElement("input");
+          nameInput.type = "text";
+          nameInput.className = "asset-element-group-name";
+          nameInput.value = node.element.getAttribute("id") || "";
+          nameInput.placeholder = "Unnamed group";
+          nameInput.setAttribute("aria-label", "Group name");
+          nameInput.title = "Group name (stored as this <g>'s id attribute)";
+          nameInput.addEventListener("pointerdown", (event) => event.stopPropagation());
+          nameInput.addEventListener("keydown", (event) => event.stopPropagation());
+          nameInput.addEventListener("change", () => {
+            const nextId = sanitizeSvgId(nameInput.value);
+            if (nextId) node.element.setAttribute("id", nextId);
+            else node.element.removeAttribute("id");
+            nameInput.value = nextId;
+          });
+          header.appendChild(nameInput);
           const nestedList = document.createElement("ol");
           nestedList.className = "asset-element-group-children";
           renderElementNodes(node.children, nestedList);
           groupItem.append(header, nestedList);
           container.appendChild(groupItem);
+
+          const pendingFocus = assetPendingGroupFocus.get(asset.id);
+          if (pendingFocus) {
+            const groupNumbers = collectElementNumbers(node);
+            if (groupNumbers.length === pendingFocus.size && groupNumbers.every((number) => pendingFocus.has(number))) {
+              assetPendingGroupFocus.delete(asset.id);
+              setTimeout(() => {
+                nameInput.focus();
+                nameInput.select();
+              }, 0);
+            }
+          }
         } else {
           const layer = layerByNumber.get(node.number);
           if (layer) container.appendChild(renderElementRow(layer));
