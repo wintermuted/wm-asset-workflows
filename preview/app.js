@@ -912,15 +912,25 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       return;
     }
     const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
-    let bbox = { width: 0, height: 0 };
+    let bbox = { x: 0, y: 0, width: 0, height: 0 };
     try { bbox = element.getBBox(); } catch { /* element may not be renderable yet */ }
+    const box = edit?.resize ?? {
+      left: bbox.x,
+      top: bbox.y,
+      right: bbox.x + bbox.width,
+      bottom: bbox.y + bbox.height
+    };
+    const x = box.left + (edit?.offsetX ?? 0);
+    const y = box.top + (edit?.offsetY ?? 0);
+    const width = box.right - box.left;
+    const height = box.bottom - box.top;
     tooltip.replaceChildren();
     const title = document.createElement("strong");
     title.textContent = `Element ${layerNumber} · ${element.localName}`;
     const position = document.createElement("span");
-    position.textContent = `x ${Math.round(edit?.offsetX || 0)}, y ${Math.round(edit?.offsetY || 0)}`;
+    position.textContent = `X ${Math.round(x)}, Y ${Math.round(y)}`;
     const size = document.createElement("span");
-    size.textContent = `${Math.round(bbox.width)} × ${Math.round(bbox.height)}`;
+    size.textContent = `${Math.round(width)} × ${Math.round(height)}`;
     tooltip.append(title, position, size);
     if (edit?.rotation) {
       const rotation = document.createElement("span");
