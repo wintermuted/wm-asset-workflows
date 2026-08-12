@@ -916,10 +916,13 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     positionPrimaryTooltip(tooltip, previewContainer, element);
   };
 
-  const moveSelectedLayer = (layerNumber, offsetX, offsetY) => {
-    updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
+  const moveSelectedLayers = (layerNumbers, offsetsByLayer) => {
+    for (const layerNumber of layerNumbers) {
+      const { offsetX, offsetY } = offsetsByLayer.get(layerNumber);
+      updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
+    }
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
-    updateTooltip(layerNumber);
+    updateTooltip(layersController.getSelectedLayer());
   };
 
   const onKeydown = (event) => {
@@ -930,10 +933,17 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     if (!delta) return;
     event.preventDefault();
     const step = event.shiftKey ? 10 : 1;
-    const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
-    const offsetX = (existing?.offsetX || 0) + delta[0] * step;
-    const offsetY = (existing?.offsetY || 0) + delta[1] * step;
-    moveSelectedLayer(layerNumber, offsetX, offsetY);
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    const layerNumbers = multiSelected.length > 1 ? multiSelected : [layerNumber];
+    const offsetsByLayer = new Map();
+    for (const number of layerNumbers) {
+      const existing = assetLayerEdits.get(asset.id)?.get(number);
+      offsetsByLayer.set(number, {
+        offsetX: (existing?.offsetX || 0) + delta[0] * step,
+        offsetY: (existing?.offsetY || 0) + delta[1] * step
+      });
+    }
+    moveSelectedLayers(layerNumbers, offsetsByLayer);
   };
 
   const onPointerOver = (event) => {
@@ -985,8 +995,15 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   };
 
   // Returns edge/center rects (relative to previewContainer) for the
-  // artboard SVG and every graphic other than `excludeIndex`.
-  const getAlignmentTargets = (excludeIndex) => {
+  // artboard SVG and every graphic other than the ones in `excludeIndices`
+  // (accepts a single index or an array/Set of indices, so group moves can
+  // exclude every selected element rather than just one).
+  const getAlignmentTargets = (excludeIndices) => {
+    const excluded = new Set(
+      Array.isArray(excludeIndices) || excludeIndices instanceof Set
+        ? excludeIndices
+        : [excludeIndices]
+    );
     const containerRect = previewContainer.getBoundingClientRect();
     const toEdges = (rect) => ({
       left: rect.left - containerRect.left,
@@ -1000,7 +1017,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const svg = root.querySelector("svg");
     if (svg) targets.push(toEdges(svg.getBoundingClientRect()));
     getGraphics().forEach((el, idx) => {
-      if (idx === excludeIndex) return;
+      if (excluded.has(idx)) return;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return;
       targets.push(toEdges(rect));
@@ -1189,16 +1206,23 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       return;
     }
     const selectedLayerNumber = layersController.getSelectedLayer();
-    if (layerNumber === selectedLayerNumber) {
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    const isGroupMember = multiSelected.length > 1 && multiSelected.includes(layerNumber);
+    if (layerNumber === selectedLayerNumber || isGroupMember) {
       const { x: scaleX, y: scaleY } = getUnitsPerPixel();
-      const existing = assetLayerEdits.get(asset.id)?.get(layerNumber);
+      const layerNumbers = isGroupMember ? multiSelected : [layerNumber];
+      const bases = new Map();
+      for (const number of layerNumbers) {
+        const existing = assetLayerEdits.get(asset.id)?.get(number);
+        bases.set(number, { offsetX: existing?.offsetX || 0, offsetY: existing?.offsetY || 0 });
+      }
       dragState = {
-        layerNumber,
+        layerNumbers,
+        primaryLayerNumber: layerNumber,
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
-        baseOffsetX: existing?.offsetX || 0,
-        baseOffsetY: existing?.offsetY || 0,
+        bases,
         scaleX,
         scaleY,
         moved: false
@@ -1387,29 +1411,52 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const dx = event.clientX - dragState.startX;
     const dy = event.clientY - dragState.startY;
     if (Math.hypot(dx, dy) > 2) dragState.moved = true;
-    let offsetX = dragState.baseOffsetX + dx * dragState.scaleX;
-    let offsetY = dragState.baseOffsetY + dy * dragState.scaleY;
-    updateAssetLayerEdits(asset.id, dragState.layerNumber, { offsetX, offsetY });
-    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
-    // Snap the moving element's edges/centers to other elements and the
-    // artboard on both axes independently, drawing a guide line per match.
+    let deltaX = dx * dragState.scaleX;
+    let deltaY = dy * dragState.scaleY;
+    // Every dragged element (a group of one for a normal single-element
+    // drag) moves by the same delta relative to its own starting offset, so
+    // the whole multi-selection stays in lockstep rather than compounding
+    // drift across pointermove events.
+    const applyGroupOffset = (offsetDx, offsetDy) => {
+      for (const layerNumber of dragState.layerNumbers) {
+        const base = dragState.bases.get(layerNumber);
+        updateAssetLayerEdits(asset.id, layerNumber, {
+          offsetX: base.offsetX + offsetDx,
+          offsetY: base.offsetY + offsetDy
+        });
+      }
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    };
+    applyGroupOffset(deltaX, deltaY);
+    // Snap the union of every dragged element's edges/centers to other
+    // (non-dragged) elements and the artboard on both axes independently.
     clearGuides();
     if (!event.ctrlKey && !event.metaKey) {
-      const element = getGraphics()[dragState.layerNumber - 1];
-      if (element) {
-        const targets = getAlignmentTargets(dragState.layerNumber - 1);
-        const activeEdges = getElementEdges(element);
+      const graphics = getGraphics();
+      const excludeIndices = dragState.layerNumbers.map((n) => n - 1);
+      const targets = getAlignmentTargets(excludeIndices);
+      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      let found = false;
+      for (const layerNumber of dragState.layerNumbers) {
+        const element = graphics[layerNumber - 1];
+        if (!element) continue;
+        const edges = getElementEdges(element);
+        left = Math.min(left, edges.left);
+        top = Math.min(top, edges.top);
+        right = Math.max(right, edges.right);
+        bottom = Math.max(bottom, edges.bottom);
+        found = true;
+      }
+      if (found) {
+        const activeEdges = { left, right, centerX: (left + right) / 2, top, bottom, centerY: (top + bottom) / 2 };
         const xSnap = findAxisSnap(activeEdges, ["left", "right", "centerX"], targets);
         const ySnap = findAxisSnap(activeEdges, ["top", "bottom", "centerY"], targets);
-        if (xSnap) { offsetX += xSnap.delta * dragState.scaleX; showGuide("v", xSnap.screenPos); }
-        if (ySnap) { offsetY += ySnap.delta * dragState.scaleY; showGuide("h", ySnap.screenPos); }
-        if (xSnap || ySnap) {
-          updateAssetLayerEdits(asset.id, dragState.layerNumber, { offsetX, offsetY });
-          applyAssetLayerEdits(root.querySelector("svg"), asset.id);
-        }
+        if (xSnap) { deltaX += xSnap.delta * dragState.scaleX; showGuide("v", xSnap.screenPos); }
+        if (ySnap) { deltaY += ySnap.delta * dragState.scaleY; showGuide("h", ySnap.screenPos); }
+        if (xSnap || ySnap) applyGroupOffset(deltaX, deltaY);
       }
     }
-    updateTooltip(dragState.layerNumber);
+    updateTooltip(dragState.primaryLayerNumber);
   };
 
   const onPointerUp = (event) => {
@@ -1432,9 +1479,9 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       return;
     }
     if (dragState && event.pointerId === dragState.pointerId) {
-      const { layerNumber, moved } = dragState;
+      const { primaryLayerNumber, moved } = dragState;
       dragState = null;
-      if (!moved) layersController.selectLayer(layerNumber);
+      if (!moved) layersController.selectLayer(primaryLayerNumber);
       return;
     }
     if (pendingSelectInfo && event.pointerId === pendingSelectInfo.pointerId) {
