@@ -633,7 +633,7 @@
 
 .asset-detail-layers li {
   display: grid;
-  grid-template-columns: max-content minmax(4rem, auto) minmax(0, 1fr);
+  grid-template-columns: max-content max-content minmax(4rem, auto) minmax(0, 1fr);
   align-items: center;
   gap: 0.3rem 0.4rem;
   padding: 0.45rem 0.55rem;
@@ -641,6 +641,18 @@
   background: var(--wm-color-surface-strong);
   cursor: pointer;
   font-size: 0.78rem;
+}
+
+.asset-detail-layers li.is-dragging {
+  opacity: 0.5;
+}
+
+.asset-detail-layers li.is-drag-over {
+  box-shadow: inset 0 2px 0 var(--wm-color-accent);
+}
+
+.asset-layer-draggable {
+  cursor: grab;
 }
 
 .asset-detail-layers li.is-active {
@@ -671,6 +683,35 @@
 
 button.asset-layer-number {
   cursor: pointer;
+}
+
+.asset-layer-reorder {
+  display: inline-grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+}
+
+.asset-layer-reorder-button {
+  display: inline-grid;
+  width: 1.3rem;
+  height: 0.8rem;
+  padding: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: 2px;
+  place-items: center;
+  color: var(--wm-color-text-muted);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-layer-reorder-button svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.asset-layer-reorder-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .asset-layer-identity,
@@ -929,6 +970,53 @@ button.asset-layer-number {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.asset-layer-attr-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.asset-layer-attr-input {
+  width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-xs);
+  background: var(--wm-color-surface-strong);
+  color: inherit;
+  font-family: var(--wm-font-mono, monospace);
+  font-size: 0.72rem;
+}
+
+.asset-layer-attr-steppers {
+  display: inline-grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+}
+
+.asset-layer-attr-step {
+  display: inline-grid;
+  width: 1.1rem;
+  height: 0.65rem;
+  padding: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: 2px;
+  place-items: center;
+  color: var(--wm-color-text-muted);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-layer-attr-step svg {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+.asset-layer-attr-color-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 @media (max-width: 840px) {

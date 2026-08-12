@@ -123,6 +123,7 @@ const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
+const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
 
 function normalizeSvgColor(value) {
   const color = String(value || "").trim();
@@ -157,6 +158,63 @@ function describeGraphicElement(element, svg) {
   return `${element.localName}${paints.length ? ` · ${paints.join(" · ")}` : ""}`;
 }
 
+function computePaintLayers(svg) {
+  const graphicElements = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+  return graphicElements.map((element, index) => {
+    let depth = 0;
+    let ancestor = element.parentElement;
+    while (ancestor && ancestor !== svg) {
+      if (ancestor.localName === "g") depth += 1;
+      ancestor = ancestor.parentElement;
+    }
+    return {
+      number: index + 1,
+      element: element.localName,
+      id: element.getAttribute("id") || "",
+      paints: graphicElementPaints(element, svg),
+      opacity: element.getAttribute("opacity") || "",
+      attributes: Array.from(element.attributes, (attribute) => [attribute.name, attribute.value]),
+      groupDepth: depth
+    };
+  });
+}
+
+function remapAssetLayerEdits(assetId, remap) {
+  const edits = assetLayerEdits.get(assetId);
+  if (!edits) return;
+  const next = new Map();
+  for (const [oldNumber, edit] of edits) {
+    const newNumber = remap.get(oldNumber);
+    if (newNumber) next.set(newNumber, edit);
+  }
+  assetLayerEdits.set(assetId, next);
+}
+
+function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
+  if (fromNumber === toNumber) return;
+  loadAssetSvgData(asset.source).then((data) => {
+    const svg = data.svg;
+    const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const moving = graphics[fromNumber - 1];
+    const target = graphics[toNumber - 1];
+    if (!moving || !target || moving === target) return;
+    const oldNumberByElement = new Map(graphics.map((element, index) => [element, index + 1]));
+    if (fromNumber < toNumber) target.after(moving); else target.before(moving);
+    const newGraphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const remap = new Map();
+    newGraphics.forEach((element, index) => {
+      const oldNumber = oldNumberByElement.get(element);
+      if (oldNumber) remap.set(oldNumber, index + 1);
+    });
+    remapAssetLayerEdits(asset.id, remap);
+    data.paintLayers = computePaintLayers(svg);
+    data.paintLayerCount = data.paintLayers.length;
+    data.topmostLayer = newGraphics.length ? describeGraphicElement(newGraphics.at(-1), svg) : "None";
+    data.maxGroupDepth = Math.max(0, ...data.paintLayers.map((layer) => layer.groupDepth));
+    onComplete?.();
+  });
+}
+
 function describeSvgEffects(documentRoot) {
   const effects = [
     ["gradient", documentRoot.querySelectorAll("linearGradient, radialGradient").length],
@@ -187,26 +245,10 @@ function loadAssetSvgData(source) {
         }
       }
       const svg = documentRoot.documentElement;
-      const graphicElements = Array.from(documentRoot.querySelectorAll("path, rect, circle, ellipse, line, polyline, polygon"));
+      const graphicElements = Array.from(documentRoot.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
       const paths = Array.from(documentRoot.querySelectorAll("path"));
       const pathCommands = /[AaCcHhLlMmQqSsTtVvZz]/g;
-      const paintLayers = graphicElements.map((element, index) => {
-        let depth = 0;
-        let ancestor = element.parentElement;
-        while (ancestor && ancestor !== svg) {
-          if (ancestor.localName === "g") depth += 1;
-          ancestor = ancestor.parentElement;
-        }
-        return {
-          number: index + 1,
-          element: element.localName,
-          id: element.getAttribute("id") || "",
-          paints: graphicElementPaints(element, svg),
-          opacity: element.getAttribute("opacity") || "",
-          attributes: Array.from(element.attributes, (attribute) => [attribute.name, attribute.value]),
-          groupDepth: depth
-        };
-      });
+      const paintLayers = computePaintLayers(svg);
       return {
         colors,
         viewBox: svg.getAttribute("viewBox") || "Not set",
@@ -339,11 +381,12 @@ function renderAssetPrimarySvg(root, asset) {
 function updateAssetLayerEdits(assetId, layerNumber, updates) {
   if (!assetLayerEdits.has(assetId)) assetLayerEdits.set(assetId, new Map());
   const edits = assetLayerEdits.get(assetId);
-  const existing = edits.get(layerNumber) || { paints: {} };
+  const existing = edits.get(layerNumber) || { paints: {}, attrs: {} };
   edits.set(layerNumber, {
     ...existing,
     ...updates,
-    paints: { ...existing.paints, ...updates.paints }
+    paints: { ...existing.paints, ...updates.paints },
+    attrs: { ...existing.attrs, ...updates.attrs }
   });
 }
 
@@ -358,6 +401,9 @@ function applyAssetLayerEdits(svg, assetId) {
     for (const [property, value] of Object.entries(edit.paints)) {
       element.setAttribute(property, value);
     }
+    for (const [property, value] of Object.entries(edit.attrs || {})) {
+      element.setAttribute(property, value);
+    }
     if (edit.opacity !== undefined) element.setAttribute("opacity", String(edit.opacity));
     if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
       const originalTransform = element.dataset.originalTransform ?? element.getAttribute("transform") ?? "";
@@ -366,6 +412,53 @@ function applyAssetLayerEdits(svg, assetId) {
       element.setAttribute("transform", `${originalTransform} ${translation}`.trim());
     }
   }
+}
+
+function createSteppedNumberField({ value, step, ariaLabel, onChange }) {
+  const field = document.createElement("span");
+  field.className = "asset-layer-attr-field";
+  const input = document.createElement("input");
+  input.type = "number";
+  input.step = step;
+  input.value = value;
+  input.className = "asset-layer-attr-input";
+  input.setAttribute("aria-label", ariaLabel);
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => event.stopPropagation());
+  const commit = (next) => {
+    input.value = String(next);
+    onChange(next);
+  };
+  input.addEventListener("input", () => {
+    const next = Number(input.value);
+    if (Number.isFinite(next)) onChange(next);
+  });
+  const stepAmount = Number(step) || 1;
+  const steppers = document.createElement("span");
+  steppers.className = "asset-layer-attr-steppers";
+  const upButton = document.createElement("button");
+  upButton.type = "button";
+  upButton.className = "asset-layer-attr-step asset-layer-attr-step--up";
+  upButton.setAttribute("aria-label", `Increase ${ariaLabel}`);
+  upButton.innerHTML = '<i data-lucide="chevron-up" aria-hidden="true"></i>';
+  upButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const current = Number(input.value);
+    commit((Number.isFinite(current) ? current : 0) + stepAmount);
+  });
+  const downButton = document.createElement("button");
+  downButton.type = "button";
+  downButton.className = "asset-layer-attr-step asset-layer-attr-step--down";
+  downButton.setAttribute("aria-label", `Decrease ${ariaLabel}`);
+  downButton.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+  downButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const current = Number(input.value);
+    commit((Number.isFinite(current) ? current : 0) - stepAmount);
+  });
+  steppers.append(upButton, downButton);
+  field.append(input, steppers);
+  return { field, input };
 }
 
 function renderAssetColorList(root, asset, onHighlight) {
@@ -538,6 +631,57 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
         identity.appendChild(depth);
       }
 
+      const reorder = document.createElement("span");
+      reorder.className = "asset-layer-reorder";
+      const moveUpButton = document.createElement("button");
+      moveUpButton.type = "button";
+      moveUpButton.className = "asset-layer-reorder-button";
+      moveUpButton.setAttribute("aria-label", `Move layer ${layer.number} up`);
+      moveUpButton.innerHTML = '<i data-lucide="chevron-up" aria-hidden="true"></i>';
+      moveUpButton.disabled = layer.number >= data.paintLayerCount;
+      moveUpButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        reorderAssetLayer(asset, layer.number, layer.number + 1, () => renderAssetDetail(asset.id));
+      });
+      const moveDownButton = document.createElement("button");
+      moveDownButton.type = "button";
+      moveDownButton.className = "asset-layer-reorder-button";
+      moveDownButton.setAttribute("aria-label", `Move layer ${layer.number} down`);
+      moveDownButton.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+      moveDownButton.disabled = layer.number <= 1;
+      moveDownButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        reorderAssetLayer(asset, layer.number, layer.number - 1, () => renderAssetDetail(asset.id));
+      });
+      reorder.append(moveUpButton, moveDownButton);
+
+      item.draggable = true;
+      item.classList.add("asset-layer-draggable");
+      item.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", String(layer.number));
+        event.dataTransfer.effectAllowed = "move";
+        item.classList.add("is-dragging");
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("is-dragging");
+        for (const otherItem of layerItems.values()) otherItem.classList.remove("is-drag-over");
+      });
+      item.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        item.classList.add("is-drag-over");
+      });
+      item.addEventListener("dragleave", () => {
+        item.classList.remove("is-drag-over");
+      });
+      item.addEventListener("drop", (event) => {
+        event.preventDefault();
+        item.classList.remove("is-drag-over");
+        const sourceNumber = Number(event.dataTransfer.getData("text/plain"));
+        if (!Number.isFinite(sourceNumber) || sourceNumber === layer.number) return;
+        reorderAssetLayer(asset, sourceNumber, layer.number, () => renderAssetDetail(asset.id));
+      });
+
       const details = document.createElement("div");
       details.className = "asset-layer-details";
       const paints = document.createElement("div");
@@ -549,8 +693,19 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
         popover.style.top = `${Math.min(triggerBounds.bottom + 6, window.innerHeight - popoverBounds.height - 8)}px`;
         popover.style.left = `${Math.max(8, Math.min(triggerBounds.left, window.innerWidth - popoverBounds.width - 8))}px`;
       };
-      const currentEdits = layerEdits.get(layer.number) || { paints: {} };
+      const currentEdits = layerEdits.get(layer.number) || { paints: {}, attrs: {} };
       let firstColorInput = null;
+      const colorInputsByProperty = new Map();
+      const registerColorInput = (property, input, onSync) => {
+        if (!colorInputsByProperty.has(property)) colorInputsByProperty.set(property, []);
+        colorInputsByProperty.get(property).push({ input, onSync });
+      };
+      const syncColorInputs = (property, nextValue, sourceInput) => {
+        for (const entry of colorInputsByProperty.get(property) || []) {
+          if (entry.input !== sourceInput) entry.input.value = nextValue;
+          entry.onSync?.(nextValue);
+        }
+      };
       for (const [property, value] of layer.paints) {
         const editedValue = currentEdits.paints[property] || value;
         const paint = document.createElement("span");
@@ -572,9 +727,11 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
             const nextValue = colorInput.value.toUpperCase();
             updateAssetLayerEdits(asset.id, layer.number, { paints: { [property]: nextValue } });
             label.textContent = property;
+            syncColorInputs(property, nextValue, colorInput);
             onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
           });
           paint.appendChild(colorInput);
+          registerColorInput(property, colorInput);
           if (!firstColorInput) firstColorInput = colorInput;
         }
         paints.appendChild(paint);
@@ -608,11 +765,13 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       opacityInput.setAttribute("aria-label", `Layer ${layer.number} opacity`);
       opacityInput.addEventListener("click", (event) => event.stopPropagation());
       opacityInput.addEventListener("keydown", (event) => event.stopPropagation());
+      let attrOpacityInput = null;
       const setOpacity = (value) => {
         const nextOpacity = Number(value);
         if (!Number.isFinite(nextOpacity) || nextOpacity < 0 || nextOpacity > 1) return;
         opacityInput.value = String(nextOpacity);
         opacitySlider.value = String(nextOpacity);
+        if (attrOpacityInput) attrOpacityInput.value = String(nextOpacity);
         updateAssetLayerEdits(asset.id, layer.number, { opacity: nextOpacity });
         opacityValue.lastChild.textContent = String(nextOpacity);
         onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
@@ -708,11 +867,60 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       );
       const attributes = document.createElement("dl");
       attributes.className = "asset-layer-attributes";
+      const currentAttrs = currentEdits.attrs || {};
       for (const [name, value] of layer.attributes) {
         const term = document.createElement("dt");
         term.textContent = name;
         const description = document.createElement("dd");
-        description.textContent = value;
+        const isColorAttr = name === "fill" || name === "stroke";
+        const normalizedColor = isColorAttr ? normalizeSvgColor(currentEdits.paints[name] ?? value) : "";
+        if (normalizedColor) {
+          const field = document.createElement("span");
+          field.className = "asset-layer-attr-color-field";
+          const colorInput = document.createElement("input");
+          colorInput.type = "color";
+          colorInput.className = "asset-layer-color-input";
+          colorInput.value = normalizedColor;
+          colorInput.setAttribute("aria-label", `Layer ${layer.number} ${name} color`);
+          colorInput.addEventListener("click", (event) => event.stopPropagation());
+          colorInput.addEventListener("keydown", (event) => event.stopPropagation());
+          const valueText = document.createElement("code");
+          valueText.textContent = normalizedColor;
+          colorInput.addEventListener("input", () => {
+            const nextValue = colorInput.value.toUpperCase();
+            updateAssetLayerEdits(asset.id, layer.number, { paints: { [name]: nextValue } });
+            valueText.textContent = nextValue;
+            syncColorInputs(name, nextValue, colorInput);
+            onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+          });
+          registerColorInput(name, colorInput, (nextValue) => { valueText.textContent = nextValue; });
+          field.append(colorInput, valueText);
+          description.appendChild(field);
+        } else if (name === "opacity") {
+          const initialOpacity = currentEdits.opacity ?? (value === "" ? 1 : Number(value));
+          const { field, input } = createSteppedNumberField({
+            value: String(initialOpacity),
+            step: "0.01",
+            ariaLabel: `Layer ${layer.number} opacity`,
+            onChange: (next) => setOpacity(Math.min(1, Math.max(0, next)))
+          });
+          attrOpacityInput = input;
+          description.appendChild(field);
+        } else if (value !== "" && Number.isFinite(Number(value))) {
+          const step = value.includes(".") ? "0.01" : "1";
+          const { field } = createSteppedNumberField({
+            value: currentAttrs[name] ?? value,
+            step,
+            ariaLabel: `Layer ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          description.appendChild(field);
+        } else {
+          description.textContent = value;
+        }
         attributes.append(term, description);
       }
       layerEditor.append(editorHeader, moveControls, attributes);
@@ -744,6 +952,7 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       details.appendChild(paints);
       details.append(opacityValue, editButton, opacityEditor);
       item.appendChild(number);
+      item.appendChild(reorder);
       item.appendChild(identity);
       item.appendChild(details);
       root.appendChild(item);
