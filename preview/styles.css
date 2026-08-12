@@ -665,6 +665,14 @@
   height: auto;
 }
 
+.asset-primary-svg .is-multi-selected {
+  stroke: #3b82f6 !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 4 2;
+  vector-effect: non-scaling-stroke;
+  paint-order: stroke fill;
+}
+
 .asset-primary-svg .is-color-highlighted {
   stroke: #ff2d2d !important;
   stroke-width: 3px !important;

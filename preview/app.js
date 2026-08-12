@@ -601,6 +601,19 @@ function setPrimarySvgLayerHighlight(root, layerNumber, highlighted) {
   }
 }
 
+// Draws a lightweight blue selection outline on every shift-click-selected
+// element. Only shown once 2+ elements are selected - a single selection
+// already gets the stronger red is-color-highlighted treatment above, and
+// stacking both would just be visual clutter for the common single-select case.
+function setPrimarySvgMultiSelectHighlight(root, layerNumbers) {
+  const graphics = Array.from(root.querySelectorAll("svg :is(path, rect, circle, ellipse, line, polyline, polygon)"));
+  const selected = new Set(layerNumbers);
+  const showAll = selected.size > 1;
+  graphics.forEach((element, idx) => {
+    element.classList.toggle("is-multi-selected", showAll && selected.has(idx + 1));
+  });
+}
+
 function describeSvgRegions(elements) {
   const labels = { rect: "rectangle", ellipse: "ellipse", polyline: "polyline", polygon: "polygon" };
   const counts = new Map();
@@ -1063,6 +1076,14 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       return;
     }
     const layerNumber = idx + 1;
+    if (event.shiftKey) {
+      // Shift-click toggles this element in/out of the multi-selection
+      // without starting a drag, so a chain of shift-clicks just builds up
+      // the selection rather than moving the last-clicked element.
+      event.preventDefault();
+      layersController.selectLayer(layerNumber, { additive: true });
+      return;
+    }
     const selectedLayerNumber = layersController.getSelectedLayer();
     if (layerNumber === selectedLayerNumber) {
       const { x: scaleX, y: scaleY } = getUnitsPerPixel();
@@ -1480,7 +1501,7 @@ function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
   return { status, combineButton, clearButton, shapeSelect };
 }
 
-function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit, onSelect) {
+function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit, onSelect, onMultiSelectChange) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
   editorPanel.hidden = true;
@@ -1503,7 +1524,14 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     const pendingSelection = assetPendingElementSelection.get(asset.id);
     if (pendingSelection !== undefined) assetPendingElementSelection.delete(asset.id);
     let selectedLayerNumber = pendingSelection ?? null;
+    // Elements shift-clicked together (canvas or panel row) so multiple can be
+    // moved/inspected as a group. Distinct from the checkbox-driven `selection`
+    // Set below, which only tracks candidates for the "combine into group"
+    // action - keeping the two decoupled means shift-clicking to multi-select
+    // never clobbers an in-progress combine checkbox selection, and vice versa.
+    let multiSelection = new Set(selectedLayerNumber !== null ? [selectedLayerNumber] : []);
     onSelect?.(selectedLayerNumber);
+    onMultiSelectChange?.([...multiSelection]);
     let hoveredLayerNumber = null;
     let focusedLayerNumber = null;
     const layerItems = new Map();
@@ -1550,14 +1578,33 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const highlightedLayerNumber = hoveredLayerNumber ?? focusedLayerNumber ?? selectedLayerNumber;
       for (const [layerNumber, item] of layerItems) {
         item.classList.toggle("is-active", layerNumber === highlightedLayerNumber);
-        item.classList.toggle("is-selected", layerNumber === selectedLayerNumber);
-        layerButtons.get(layerNumber)?.setAttribute("aria-pressed", String(layerNumber === selectedLayerNumber));
+        item.classList.toggle("is-selected", multiSelection.has(layerNumber));
+        layerButtons.get(layerNumber)?.setAttribute("aria-pressed", String(multiSelection.has(layerNumber)));
       }
       onHighlight(highlightedLayerNumber, highlightedLayerNumber !== null);
     };
-    const selectLayer = (layerNumber) => {
-      selectedLayerNumber = selectedLayerNumber === layerNumber ? null : layerNumber;
+    // `options.additive` (shift-click) adds/removes a layer from the
+    // multi-selection without disturbing the rest of it; a plain click
+    // replaces the whole multi-selection with just the toggled layer (or
+    // clears it, matching the pre-existing single-select toggle behavior).
+    const selectLayer = (layerNumber, options = {}) => {
+      if (options.additive) {
+        if (multiSelection.has(layerNumber)) {
+          multiSelection.delete(layerNumber);
+          if (selectedLayerNumber === layerNumber) {
+            const remaining = [...multiSelection];
+            selectedLayerNumber = remaining.length ? remaining[remaining.length - 1] : null;
+          }
+        } else {
+          multiSelection.add(layerNumber);
+          selectedLayerNumber = layerNumber;
+        }
+      } else {
+        selectedLayerNumber = selectedLayerNumber === layerNumber ? null : layerNumber;
+        multiSelection = new Set(selectedLayerNumber !== null ? [selectedLayerNumber] : []);
+      }
       onSelect?.(selectedLayerNumber);
+      onMultiSelectChange?.([...multiSelection]);
       syncHighlight();
     };
     controller.setHoveredLayer = (layerNumber) => { hoveredLayerNumber = layerNumber; syncHighlight(); };
@@ -1578,7 +1625,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           if (hoveredLayerNumber === layer.number) hoveredLayerNumber = null;
           syncHighlight();
         });
-        toggleSelection = () => selectLayer(layer.number);
+        toggleSelection = (event) => selectLayer(layer.number, { additive: event?.shiftKey });
         item.addEventListener("click", toggleSelection);
       }
       const number = document.createElement(onHighlight ? "button" : "span");
@@ -2439,7 +2486,8 @@ function renderAssetDetail(assetId) {
     asset,
     (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
     () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
-    (layerNumber) => primaryInteractionState.updateTooltip(layerNumber)
+    (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
+    (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
   );
   const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
