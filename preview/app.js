@@ -675,10 +675,29 @@ function applyAssetLayerEdits(svg, assetId) {
       element.setAttribute(property, value);
     }
     if (edit.opacity !== undefined) element.setAttribute("opacity", String(edit.opacity));
-    if (edit.offsetX !== undefined || edit.offsetY !== undefined || edit.resize) {
+    if (edit.offsetX !== undefined || edit.offsetY !== undefined || edit.resize || edit.rotation !== undefined) {
       const originalTransform = element.dataset.originalTransform ?? element.getAttribute("transform") ?? "";
       element.dataset.originalTransform = originalTransform;
       const parts = [originalTransform];
+      if (edit.rotation !== undefined) {
+        // Rotate around the element's current visual center - after resize
+        // and move (offset) have been applied, but before any ambient
+        // original/group transform - so it spins the shape in place
+        // regardless of how it's been moved or resized.
+        let centerX, centerY;
+        if (edit.resize) {
+          centerX = (edit.resize.left + edit.resize.right) / 2;
+          centerY = (edit.resize.top + edit.resize.bottom) / 2;
+        } else {
+          let bbox = null;
+          try { bbox = element.getBBox(); } catch { /* not renderable yet */ }
+          centerX = bbox ? bbox.x + bbox.width / 2 : 0;
+          centerY = bbox ? bbox.y + bbox.height / 2 : 0;
+        }
+        const cx = centerX + (edit.offsetX || 0);
+        const cy = centerY + (edit.offsetY || 0);
+        parts.push(`rotate(${edit.rotation} ${cx} ${cy})`);
+      }
       if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
         parts.push(`translate(${edit.offsetX || 0} ${edit.offsetY || 0})`);
       }
@@ -753,6 +772,8 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
 
   const handleNames = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
   const handleElements = new Map();
+  let rotateHandleEl = null;
+  let rotateLineEl = null;
   if (handles) {
     handles.replaceChildren();
     for (const name of handleNames) {
@@ -762,7 +783,16 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       handles.appendChild(handleEl);
       handleElements.set(name, handleEl);
     }
+    rotateLineEl = document.createElement("div");
+    rotateLineEl.className = "asset-rotate-handle-line";
+    handles.appendChild(rotateLineEl);
+    rotateHandleEl = document.createElement("div");
+    rotateHandleEl.className = "asset-rotate-handle";
+    rotateHandleEl.dataset.handle = "rotate";
+    handles.appendChild(rotateHandleEl);
   }
+
+  const ROTATE_HANDLE_OFFSET = 24;
 
   const updateHandles = (layerNumber) => {
     if (!handles) return;
@@ -793,8 +823,18 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       handleEl.style.left = `${x}px`;
       handleEl.style.top = `${y}px`;
     }
+    if (rotateHandleEl) {
+      rotateHandleEl.style.left = `${midX}px`;
+      rotateHandleEl.style.top = `${top - ROTATE_HANDLE_OFFSET}px`;
+    }
+    if (rotateLineEl) {
+      rotateLineEl.style.left = `${midX}px`;
+      rotateLineEl.style.top = `${top - ROTATE_HANDLE_OFFSET}px`;
+      rotateLineEl.style.height = `${ROTATE_HANDLE_OFFSET}px`;
+    }
     handles.hidden = false;
   };
+
 
   const updateTooltip = (layerNumber) => {
     updateHandles(layerNumber);
@@ -819,6 +859,11 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const size = document.createElement("span");
     size.textContent = `${Math.round(bbox.width)} × ${Math.round(bbox.height)}`;
     tooltip.append(title, position, size);
+    if (edit?.rotation) {
+      const rotation = document.createElement("span");
+      rotation.textContent = `${Math.round(edit.rotation % 360)}°`;
+      tooltip.append(rotation);
+    }
     tooltip.hidden = false;
     positionPrimaryTooltip(tooltip, previewContainer, element);
   };
@@ -866,6 +911,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
 
   let dragState = null;
   let resizeState = null;
+  let rotateState = null;
   let pendingSelectInfo = null;
 
   const onHandlePointerDown = (event) => {
@@ -877,6 +923,22 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     if (layerNumber === null || layerNumber === undefined) return;
     const element = getGraphics()[layerNumber - 1];
     if (!element) return;
+    if (handleName === "rotate") {
+      const rect = element.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const existingRotation = assetLayerEdits.get(asset.id)?.get(layerNumber)?.rotation || 0;
+      rotateState = {
+        layerNumber,
+        pointerId: event.pointerId,
+        centerX,
+        centerY,
+        startAngleDeg: existingRotation,
+        startPointerAngleDeg: Math.atan2(event.clientY - centerY, event.clientX - centerX) * (180 / Math.PI)
+      };
+      event.target.setPointerCapture?.(event.pointerId);
+      return;
+    }
     let nativeBBox;
     try { nativeBBox = element.getBBox(); } catch { return; }
     if (!nativeBBox) return;
@@ -941,6 +1003,16 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     event.preventDefault();
   };
   const onPointerMove = (event) => {
+    if (rotateState && event.pointerId === rotateState.pointerId) {
+      const { centerX, centerY, startAngleDeg, startPointerAngleDeg, layerNumber } = rotateState;
+      const pointerAngleDeg = Math.atan2(event.clientY - centerY, event.clientX - centerX) * (180 / Math.PI);
+      let rotation = startAngleDeg + (pointerAngleDeg - startPointerAngleDeg);
+      if (event.shiftKey) rotation = Math.round(rotation / 15) * 15; // snap to 15° increments
+      updateAssetLayerEdits(asset.id, layerNumber, { rotation });
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      updateTooltip(layerNumber);
+      return;
+    }
     if (resizeState && event.pointerId === resizeState.pointerId) {
       const { handle, nativeBBox, currentBox, unitsPerPixel, layerNumber, startX, startY } = resizeState;
       const dxLocal = (event.clientX - startX) * unitsPerPixel.x;
@@ -954,6 +1026,38 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       if (handle.includes("w")) left = Math.min(right - minSize, left + dxLocal);
       if (handle.includes("s")) bottom = Math.max(top + minSize, bottom + dyLocal);
       if (handle.includes("n")) top = Math.min(bottom - minSize, top + dyLocal);
+      if (event.shiftKey && nativeBBox.width > 0 && nativeBBox.height > 0) {
+        // Lock the box to the element's native aspect ratio. Corner handles
+        // already touch both axes, so whichever axis the pointer moved
+        // further along drives the locked dimension, recomputed from the
+        // fixed anchor edge implied by the handle. Edge handles only touch
+        // one axis normally; with the ratio locked they also grow/shrink the
+        // perpendicular axis, centered on the box's current midpoint since an
+        // edge handle has no natural anchor on that axis.
+        const nativeAspect = nativeBBox.width / nativeBBox.height;
+        const touchesX = handle.includes("e") || handle.includes("w");
+        const touchesY = handle.includes("n") || handle.includes("s");
+        if (touchesX && touchesY) {
+          const dominant = Math.abs(dxLocal) >= Math.abs(dyLocal) ? "x" : "y";
+          if (dominant === "x") {
+            const height = Math.max(minSize, (right - left) / nativeAspect);
+            if (handle.includes("s")) bottom = top + height; else top = bottom - height;
+          } else {
+            const width = Math.max(minSize, (bottom - top) * nativeAspect);
+            if (handle.includes("e")) right = left + width; else left = right - width;
+          }
+        } else if (touchesX) {
+          const height = Math.max(minSize, (right - left) / nativeAspect);
+          const centerY = (currentBox.top + currentBox.bottom) / 2;
+          top = centerY - height / 2;
+          bottom = centerY + height / 2;
+        } else if (touchesY) {
+          const width = Math.max(minSize, (bottom - top) * nativeAspect);
+          const centerX = (currentBox.left + currentBox.right) / 2;
+          left = centerX - width / 2;
+          right = centerX + width / 2;
+        }
+      }
       updateAssetLayerEdits(asset.id, layerNumber, {
         resize: {
           nativeLeft: nativeBBox.x,
@@ -977,6 +1081,10 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   };
 
   const onPointerUp = (event) => {
+    if (rotateState && event.pointerId === rotateState.pointerId) {
+      rotateState = null;
+      return;
+    }
     if (resizeState && event.pointerId === resizeState.pointerId) {
       resizeState = null;
       return;

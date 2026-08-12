@@ -597,6 +597,32 @@
   cursor: ew-resize;
 }
 
+.asset-rotate-handle-line {
+  position: absolute;
+  width: 0;
+  border-left: 1px dashed rgba(255, 45, 45, 0.7);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.asset-rotate-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1.5px solid #ff2d2d;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+
+.asset-rotate-handle:active {
+  cursor: grabbing;
+}
+
 .asset-primary-svg,
 .asset-primary-svg svg {
   width: min(100%, 512px);
