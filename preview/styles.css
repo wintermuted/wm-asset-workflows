@@ -606,8 +606,9 @@
   position: relative;
   display: grid;
   justify-items: center;
-  width: min(100%, 544px);
-  margin: 0 auto;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
   padding: 1rem;
   box-sizing: border-box;
   border-radius: var(--wm-radius-xs);
@@ -645,7 +646,8 @@
 .asset-primary-canvas {
   display: grid;
   justify-items: center;
-  width: 100%;
+  width: calc(100% + 2rem);
+  margin-inline: -1rem;
 }
 
 .asset-primary-canvas[hidden],
