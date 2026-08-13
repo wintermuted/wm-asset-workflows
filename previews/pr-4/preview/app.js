@@ -122,7 +122,31 @@ let toastTimeout;
 const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
+const assetLayerSelections = new Map();
+// Tracks a group just created by "Combine" (asset id -> Set of element numbers it
+// contains), so the panel can auto-focus that group's name field once rendered.
+const assetPendingGroupFocus = new Map();
+// Tracks an element just created via "Add element" (asset id -> element number),
+// so the panel can select/highlight it once rendered.
+const assetPendingElementSelection = new Map();
+// Tracks which <g> groups are collapsed in the elements panel (asset id ->
+// WeakSet of group DOM elements). The parsed SVG document is cached per
+// source, so the same <g> element reference persists across re-renders,
+// making it a stable collapse-state key without needing a synthetic id.
+const assetCollapsedGroups = new Map();
+// Cleans up the keyboard/drag listeners wired for the previously rendered
+// asset detail view, so re-rendering (navigating between assets) doesn't
+// stack up duplicate global listeners.
+let activePrimaryLayerInteractionCleanup = null;
+const NEW_ELEMENT_SHAPES = [
+  { value: "rect", label: "Rectangle", icon: "square" },
+  { value: "circle", label: "Circle", icon: "circle" },
+  { value: "line", label: "Line", icon: "minus" }
+];
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
+const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
 
 function normalizeSvgColor(value) {
   const color = String(value || "").trim();
@@ -157,6 +181,315 @@ function describeGraphicElement(element, svg) {
   return `${element.localName}${paints.length ? ` · ${paints.join(" · ")}` : ""}`;
 }
 
+function computePaintLayers(svg) {
+  const graphicElements = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+  return graphicElements.map((element, index) => {
+    let depth = 0;
+    let ancestor = element.parentElement;
+    while (ancestor && ancestor !== svg) {
+      if (ancestor.localName === "g") depth += 1;
+      ancestor = ancestor.parentElement;
+    }
+    return {
+      number: index + 1,
+      element: element.localName,
+      id: element.getAttribute("id") || "",
+      paints: graphicElementPaints(element, svg),
+      opacity: element.getAttribute("opacity") || "",
+      attributes: Array.from(element.attributes, (attribute) => [attribute.name, attribute.value]),
+      groupDepth: depth
+    };
+  });
+}
+
+// Builds a nested tree of elements/groups in document order so the panel can render
+// SVG <g> nesting as real outlined sub-lists instead of a flat "group depth" label.
+// Traversal order matches computePaintLayers' querySelectorAll order (depth-first,
+// document order), so element numbers assigned here line up with `layer.number`.
+function buildElementTree(container, counter = { value: 0 }) {
+  const nodes = [];
+  for (const child of container.children) {
+    if (child.matches(GRAPHIC_ELEMENT_SELECTOR)) {
+      counter.value += 1;
+      nodes.push({ type: "element", number: counter.value });
+    } else if (child.localName === "g") {
+      nodes.push({ type: "group", element: child, children: buildElementTree(child, counter) });
+    } else {
+      // Non-<g> containers (defs, clipPath, symbol, ...) aren't a visual group,
+      // but their descendants still count toward numbering, so flatten them in.
+      nodes.push(...buildElementTree(child, counter));
+    }
+  }
+  return nodes;
+}
+
+function remapAssetLayerEdits(assetId, remap) {
+  const edits = assetLayerEdits.get(assetId);
+  if (!edits) return;
+  const next = new Map();
+  for (const [oldNumber, edit] of edits) {
+    const newNumber = remap.get(oldNumber);
+    if (newNumber) next.set(newNumber, edit);
+  }
+  assetLayerEdits.set(assetId, next);
+}
+
+// Keeps the multi-select checkbox selection valid after operations that renumber
+// elements (reorder, combine, add), same pattern as remapAssetLayerEdits.
+function remapAssetLayerSelection(assetId, remap) {
+  const selection = assetLayerSelections.get(assetId);
+  if (!selection) return;
+  const next = new Set();
+  for (const oldNumber of selection) {
+    const newNumber = remap.get(oldNumber);
+    if (newNumber) next.add(newNumber);
+  }
+  assetLayerSelections.set(assetId, next);
+}
+
+function refreshAssetSvgMetrics(data, svg) {
+  const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+  data.paintLayers = computePaintLayers(svg);
+  data.paintLayerCount = data.paintLayers.length;
+  data.topmostLayer = graphics.length ? describeGraphicElement(graphics.at(-1), svg) : "None";
+  data.maxGroupDepth = Math.max(0, ...data.paintLayers.map((layer) => layer.groupDepth));
+  data.groupCount = svg.querySelectorAll("g").length;
+}
+
+function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
+  if (fromNumber === toNumber) return;
+  loadAssetSvgData(asset.source).then((data) => {
+    const svg = data.svg;
+    const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const moving = graphics[fromNumber - 1];
+    const target = graphics[toNumber - 1];
+    if (!moving || !target || moving === target) return;
+    const oldNumberByElement = new Map(graphics.map((element, index) => [element, index + 1]));
+    if (fromNumber < toNumber) target.after(moving); else target.before(moving);
+    const newGraphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const remap = new Map();
+    newGraphics.forEach((element, index) => {
+      const oldNumber = oldNumberByElement.get(element);
+      if (oldNumber) remap.set(oldNumber, index + 1);
+    });
+    remapAssetLayerEdits(asset.id, remap);
+    remapAssetLayerSelection(asset.id, remap);
+    refreshAssetSvgMetrics(data, svg);
+    onComplete?.();
+  });
+}
+
+function multiplySvgMatrices(left, right) {
+  const [a1, b1, c1, d1, e1, f1] = left;
+  const [a2, b2, c2, d2, e2, f2] = right;
+  return [
+    a1 * a2 + c1 * b2,
+    b1 * a2 + d1 * b2,
+    a1 * c2 + c1 * d2,
+    b1 * c2 + d1 * d2,
+    a1 * e2 + c1 * f2 + e1,
+    b1 * e2 + d1 * f2 + f1
+  ];
+}
+
+function invertSvgMatrix(matrix) {
+  const [a, b, c, d, e, f] = matrix;
+  const determinant = a * d - b * c;
+  if (!determinant) return null;
+  return [
+    d / determinant,
+    -b / determinant,
+    -c / determinant,
+    a / determinant,
+    (c * f - d * e) / determinant,
+    (b * e - a * f) / determinant
+  ];
+}
+
+function svgTransformToMatrix(name, args) {
+  const toRadians = (degrees) => (degrees * Math.PI) / 180;
+  if (name === "matrix") return args.length === 6 ? args : IDENTITY_MATRIX;
+  if (name === "translate") return [1, 0, 0, 1, args[0] || 0, args[1] || 0];
+  if (name === "scale") {
+    const scaleX = args[0] ?? 1;
+    return [scaleX, 0, 0, args[1] ?? scaleX, 0, 0];
+  }
+  if (name === "rotate") {
+    const angle = toRadians(args[0] || 0);
+    const rotation = [Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), 0, 0];
+    if (args.length < 3) return rotation;
+    return multiplySvgMatrices(
+      multiplySvgMatrices([1, 0, 0, 1, args[1], args[2]], rotation),
+      [1, 0, 0, 1, -args[1], -args[2]]
+    );
+  }
+  if (name === "skewX") return [1, 0, Math.tan(toRadians(args[0] || 0)), 1, 0, 0];
+  if (name === "skewY") return [1, Math.tan(toRadians(args[0] || 0)), 0, 1, 0, 0];
+  return IDENTITY_MATRIX;
+}
+
+function parseSvgTransform(value) {
+  let matrix = IDENTITY_MATRIX;
+  for (const [, name, rawArgs] of String(value || "").matchAll(/(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g)) {
+    const args = rawArgs.split(/[\s,]+/).filter(Boolean).map(Number);
+    if (args.some((argument) => !Number.isFinite(argument))) continue;
+    matrix = multiplySvgMatrices(matrix, svgTransformToMatrix(name, args));
+  }
+  return matrix;
+}
+
+// Accumulates transforms from the SVG root down to and including `element`.
+function accumulatedSvgMatrix(element, root) {
+  const chain = [];
+  let node = element;
+  while (node) {
+    chain.unshift(node);
+    if (node === root) break;
+    node = node.parentElement;
+  }
+  return chain.reduce(
+    (matrix, node) => multiplySvgMatrices(matrix, parseSvgTransform(node.getAttribute("transform"))),
+    IDENTITY_MATRIX
+  );
+}
+
+function svgMatrixToString(matrix) {
+  if (matrix.every((value, index) => Math.abs(value - IDENTITY_MATRIX[index]) < 1e-9)) return "";
+  return `matrix(${matrix.map((value) => Number(value.toFixed(6))).join(" ")})`;
+}
+
+// Turns free-text input into a valid SVG/XML `id`: strips characters outside the
+// permitted set, collapses whitespace to hyphens, and ensures a legal leading
+// character (ids must start with a letter or underscore).
+function sanitizeSvgId(raw) {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return "";
+  let id = trimmed.replace(/\s+/g, "-").replace(/[^A-Za-z0-9_:.-]/g, "");
+  if (!id) return "";
+  if (!/^[A-Za-z_]/.test(id)) id = `g-${id}`;
+  return id;
+}
+
+// Recursively collects the element numbers a tree node (and its nested groups)
+// contains, so a freshly combined group can be matched after a re-render.
+function collectElementNumbers(node) {
+  if (node.type === "element") return [node.number];
+  return node.children.flatMap(collectElementNumbers);
+}
+
+// Wraps the selected graphic elements in a new <g>, placed at the topmost
+// selected layer's position so the group keeps that layer's stacking order.
+function combineAssetLayers(asset, layerNumbers, onComplete) {
+  const numbers = [...new Set(layerNumbers)]
+    .filter((number) => Number.isInteger(number) && number > 0)
+    .sort((left, right) => left - right);
+  if (numbers.length < 2) return;
+
+  loadAssetSvgData(asset.source).then((data) => {
+    const svg = data.svg;
+    const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const selected = numbers.map((number) => graphics[number - 1]).filter(Boolean);
+    if (selected.length < 2) return;
+
+    const oldNumberByElement = new Map(graphics.map((element, index) => [element, index + 1]));
+    const group = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "g");
+    selected.at(-1).after(group);
+
+    // Elements pulled out of transformed ancestors keep their rendered position.
+    const inverseDestination = invertSvgMatrix(accumulatedSvgMatrix(group.parentElement, svg));
+    for (const element of selected) {
+      const effective = accumulatedSvgMatrix(element, svg);
+      const preserved = inverseDestination ? multiplySvgMatrices(inverseDestination, effective) : effective;
+      group.appendChild(element);
+      const transform = svgMatrixToString(preserved);
+      if (transform) element.setAttribute("transform", transform);
+      else element.removeAttribute("transform");
+    }
+
+    for (const candidate of Array.from(svg.querySelectorAll("g"))) {
+      if (candidate !== group && !candidate.children.length && !candidate.getAttribute("id")) candidate.remove();
+    }
+
+    const newGraphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const remap = new Map();
+    newGraphics.forEach((element, index) => {
+      const oldNumber = oldNumberByElement.get(element);
+      if (oldNumber) remap.set(oldNumber, index + 1);
+    });
+    remapAssetLayerEdits(asset.id, remap);
+    remapAssetLayerSelection(asset.id, remap);
+    refreshAssetSvgMetrics(data, svg);
+    onComplete?.(numbers.map((number) => remap.get(number)).filter(Boolean));
+  });
+}
+
+// Computes a centered default position/size for a newly created shape, based on
+// the SVG's viewBox (falling back to width/height attrs, then a 512x512 default).
+function getAssetViewBoxBounds(svg) {
+  const baseVal = svg.viewBox?.baseVal;
+  if (baseVal && (baseVal.width || baseVal.height)) {
+    return { minX: baseVal.x, minY: baseVal.y, width: baseVal.width, height: baseVal.height };
+  }
+  const width = Number(svg.getAttribute("width")) || 512;
+  const height = Number(svg.getAttribute("height")) || 512;
+  return { minX: 0, minY: 0, width, height };
+}
+
+function createDefaultShapeElement(svg, shape) {
+  const { minX, minY, width, height } = getAssetViewBoxBounds(svg);
+  const size = Math.max(1, Math.min(width, height) * 0.2);
+  const centerX = minX + width / 2;
+  const centerY = minY + height / 2;
+  const element = svg.ownerDocument.createElementNS(SVG_NAMESPACE, shape);
+  element.setAttribute("fill", shape === "line" ? "none" : "#6366F1");
+  if (shape === "rect") {
+    element.setAttribute("x", String(centerX - size / 2));
+    element.setAttribute("y", String(centerY - size / 2));
+    element.setAttribute("width", String(size));
+    element.setAttribute("height", String(size));
+  } else if (shape === "circle") {
+    element.setAttribute("cx", String(centerX));
+    element.setAttribute("cy", String(centerY));
+    element.setAttribute("r", String(size / 2));
+  } else if (shape === "line") {
+    element.setAttribute("x1", String(centerX - size / 2));
+    element.setAttribute("y1", String(centerY));
+    element.setAttribute("x2", String(centerX + size / 2));
+    element.setAttribute("y2", String(centerY));
+    element.setAttribute("stroke", "#6366F1");
+    element.setAttribute("stroke-width", "2");
+  }
+  return element;
+}
+
+// Creates a new shape element as the topmost child of `container` (the SVG root
+// for a global-topmost element, or an existing <g> to add inside that group),
+// then remaps edits/selection just like reorder/combine. `onComplete` receives
+// the new element's post-remap number (or undefined if the create failed).
+function createAssetElement(asset, shape, container, onComplete) {
+  loadAssetSvgData(asset.source).then((data) => {
+    const svg = data.svg;
+    const target = container && svg.contains(container) ? container : svg;
+    const graphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const oldNumberByElement = new Map(graphics.map((element, index) => [element, index + 1]));
+    const element = createDefaultShapeElement(svg, shape);
+    target.appendChild(element);
+
+    const newGraphics = Array.from(svg.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
+    const remap = new Map();
+    let newNumber;
+    newGraphics.forEach((graphic, index) => {
+      const oldNumber = oldNumberByElement.get(graphic);
+      if (oldNumber) remap.set(oldNumber, index + 1);
+      if (graphic === element) newNumber = index + 1;
+    });
+    remapAssetLayerEdits(asset.id, remap);
+    remapAssetLayerSelection(asset.id, remap);
+    refreshAssetSvgMetrics(data, svg);
+    onComplete?.(newNumber);
+  });
+}
+
 function describeSvgEffects(documentRoot) {
   const effects = [
     ["gradient", documentRoot.querySelectorAll("linearGradient, radialGradient").length],
@@ -187,26 +520,10 @@ function loadAssetSvgData(source) {
         }
       }
       const svg = documentRoot.documentElement;
-      const graphicElements = Array.from(documentRoot.querySelectorAll("path, rect, circle, ellipse, line, polyline, polygon"));
+      const graphicElements = Array.from(documentRoot.querySelectorAll(GRAPHIC_ELEMENT_SELECTOR));
       const paths = Array.from(documentRoot.querySelectorAll("path"));
       const pathCommands = /[AaCcHhLlMmQqSsTtVvZz]/g;
-      const paintLayers = graphicElements.map((element, index) => {
-        let depth = 0;
-        let ancestor = element.parentElement;
-        while (ancestor && ancestor !== svg) {
-          if (ancestor.localName === "g") depth += 1;
-          ancestor = ancestor.parentElement;
-        }
-        return {
-          number: index + 1,
-          element: element.localName,
-          id: element.getAttribute("id") || "",
-          paints: graphicElementPaints(element, svg),
-          opacity: element.getAttribute("opacity") || "",
-          attributes: Array.from(element.attributes, (attribute) => [attribute.name, attribute.value]),
-          groupDepth: depth
-        };
-      });
+      const paintLayers = computePaintLayers(svg);
       return {
         colors,
         viewBox: svg.getAttribute("viewBox") || "Not set",
@@ -277,16 +594,31 @@ function setPrimarySvgLayerHighlight(root, layerNumber, highlighted) {
   const graphics = Array.from(root.querySelectorAll("svg :is(path, rect, circle, ellipse, line, polyline, polygon)"));
   if (!highlighted) {
     for (const element of graphics) {
-      element.classList.remove("is-color-highlighted", "is-color-muted");
+      element.classList.remove("is-color-highlighted");
     }
     return;
   }
 
+  // Only outline the hovered/selected element - leave every other element's
+  // opacity untouched so the rest of the artwork stays visible at full
+  // strength instead of dimming while browsing layers.
   const selected = graphics[layerNumber - 1];
   for (const element of graphics) {
     element.classList.toggle("is-color-highlighted", element === selected);
-    element.classList.toggle("is-color-muted", element !== selected);
   }
+}
+
+// Draws a lightweight blue selection outline on every shift-click-selected
+// element. Only shown once 2+ elements are selected - a single selection
+// already gets the stronger red is-color-highlighted treatment above, and
+// stacking both would just be visual clutter for the common single-select case.
+function setPrimarySvgMultiSelectHighlight(root, layerNumbers) {
+  const graphics = Array.from(root.querySelectorAll("svg :is(path, rect, circle, ellipse, line, polyline, polygon)"));
+  const selected = new Set(layerNumbers);
+  const showAll = selected.size > 1;
+  graphics.forEach((element, idx) => {
+    element.classList.toggle("is-multi-selected", showAll && selected.has(idx + 1));
+  });
 }
 
 function describeSvgRegions(elements) {
@@ -314,13 +646,23 @@ function describeSvgLayers(elements) {
     }
   }
   const summary = ranges.map(([start, end]) => start === end ? String(start) : `${start}-${end}`).join(", ");
-  return `${layers.length === 1 ? "layer" : "layers"} ${summary}`;
+  return `${layers.length === 1 ? "element" : "elements"} ${summary}`;
 }
 
-function renderAssetPrimarySvg(root, asset) {
+function previewSizeLabel(size) {
+  return size === "fit" ? "Fit width" : `${size}px`;
+}
+
+function setAssetPrimarySvgSize(root, asset, size) {
+  const cssSize = size === "fit" ? "100%" : `${size}px`;
+  root.style.setProperty("--asset-preview-size", cssSize);
+  root.setAttribute("aria-label", `${asset.label} at ${previewSizeLabel(size)}`);
+}
+
+function renderAssetPrimarySvg(root, asset, size = "fit") {
   root.replaceChildren();
   root.dataset.assetId = asset.id;
-  root.setAttribute("aria-label", `${asset.label} at 512px`);
+  setAssetPrimarySvgSize(root, asset, size);
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
@@ -339,11 +681,12 @@ function renderAssetPrimarySvg(root, asset) {
 function updateAssetLayerEdits(assetId, layerNumber, updates) {
   if (!assetLayerEdits.has(assetId)) assetLayerEdits.set(assetId, new Map());
   const edits = assetLayerEdits.get(assetId);
-  const existing = edits.get(layerNumber) || { paints: {} };
+  const existing = edits.get(layerNumber) || { paints: {}, attrs: {} };
   edits.set(layerNumber, {
     ...existing,
     ...updates,
-    paints: { ...existing.paints, ...updates.paints }
+    paints: { ...existing.paints, ...updates.paints },
+    attrs: { ...existing.attrs, ...updates.attrs }
   });
 }
 
@@ -358,14 +701,901 @@ function applyAssetLayerEdits(svg, assetId) {
     for (const [property, value] of Object.entries(edit.paints)) {
       element.setAttribute(property, value);
     }
+    for (const [property, value] of Object.entries(edit.attrs || {})) {
+      element.setAttribute(property, value);
+    }
     if (edit.opacity !== undefined) element.setAttribute("opacity", String(edit.opacity));
-    if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
+    if (edit.offsetX !== undefined || edit.offsetY !== undefined || edit.resize || edit.rotation !== undefined) {
       const originalTransform = element.dataset.originalTransform ?? element.getAttribute("transform") ?? "";
       element.dataset.originalTransform = originalTransform;
-      const translation = `translate(${edit.offsetX || 0} ${edit.offsetY || 0})`;
-      element.setAttribute("transform", `${originalTransform} ${translation}`.trim());
+      const parts = [originalTransform];
+      if (edit.rotation !== undefined) {
+        // Rotate around the element's current visual center - after resize
+        // and move (offset) have been applied, but before any ambient
+        // original/group transform - so it spins the shape in place
+        // regardless of how it's been moved or resized.
+        let centerX, centerY;
+        if (edit.resize) {
+          centerX = (edit.resize.left + edit.resize.right) / 2;
+          centerY = (edit.resize.top + edit.resize.bottom) / 2;
+        } else {
+          let bbox = null;
+          try { bbox = element.getBBox(); } catch { /* not renderable yet */ }
+          centerX = bbox ? bbox.x + bbox.width / 2 : 0;
+          centerY = bbox ? bbox.y + bbox.height / 2 : 0;
+        }
+        const cx = centerX + (edit.offsetX || 0);
+        const cy = centerY + (edit.offsetY || 0);
+        parts.push(`rotate(${edit.rotation} ${cx} ${cy})`);
+      }
+      if (edit.offsetX !== undefined || edit.offsetY !== undefined) {
+        parts.push(`translate(${edit.offsetX || 0} ${edit.offsetY || 0})`);
+      }
+      if (edit.resize) {
+        // Maps the element's native (untransformed) bounding box edges
+        // (nativeLeft/Top/Right/Bottom, captured once on the first resize) onto
+        // the stored current edges (left/top/right/bottom). Storing absolute
+        // native-space edges - rather than an anchor point plus a scale factor -
+        // means each edge's screen position is derived independently every time,
+        // so dragging a different handle in a later resize never disturbs edges
+        // that aren't being dragged, even if a previous resize used a different
+        // anchor. Applied innermost (rightmost) so it acts on the element's
+        // native geometry before the offset/original transform.
+        const { nativeLeft, nativeTop, nativeWidth, nativeHeight, left, top, right, bottom } = edit.resize;
+        const scaleX = nativeWidth > 0 ? (right - left) / nativeWidth : 1;
+        const scaleY = nativeHeight > 0 ? (bottom - top) / nativeHeight : 1;
+        const translateX = left - scaleX * nativeLeft;
+        const translateY = top - scaleY * nativeTop;
+        parts.push(`translate(${translateX} ${translateY}) scale(${scaleX} ${scaleY})`);
+      }
+      element.setAttribute("transform", parts.join(" ").trim());
     }
   }
+}
+
+// Positions the primary preview tooltip next to `element`, anchoring its
+// top-left corner at the element's bottom-right corner (with a small gap),
+// flipping to anchor its bottom-right corner at the element's top-left
+// corner when the default placement would overflow the container (i.e. the
+// element sits too close to the artboard's southeast corner).
+function positionPrimaryTooltip(tooltip, container, element) {
+  const containerRect = container.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  const gap = 8;
+  const relLeft = elementRect.left - containerRect.left;
+  const relTop = elementRect.top - containerRect.top;
+  const relRight = elementRect.right - containerRect.left;
+  const relBottom = elementRect.bottom - containerRect.top;
+  const tooltipWidth = tooltip.offsetWidth;
+  const tooltipHeight = tooltip.offsetHeight;
+
+  let left = relRight + gap;
+  let top = relBottom + gap;
+  if (left + tooltipWidth > containerRect.width || top + tooltipHeight > containerRect.height) {
+    left = relLeft - gap - tooltipWidth;
+    top = relTop - gap - tooltipHeight;
+  }
+  left = Math.max(4, Math.min(left, containerRect.width - tooltipWidth - 4));
+  top = Math.max(4, Math.min(top, containerRect.height - tooltipHeight - 4));
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+// Wires up hover/selection sync and interaction between the primary preview
+// canvas and the elements panel, plus a live-updating position tooltip and
+// resize handles for the selected element. `layersController` is the object
+// returned by renderAssetLayers, exposing setHoveredLayer/clearHoveredLayer/
+// selectLayer/getSelectedLayer so both surfaces (canvas + panel) stay in
+// sync. Returns `{ updateTooltip, cleanup }`; callers must invoke the
+// previous cleanup before wiring up a new asset (renderAssetDetail re-runs
+// per view).
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController) {
+  const getGraphics = () => {
+    const svg = root.querySelector("svg");
+    return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
+  };
+  const isTypingTarget = (element) => {
+    if (!element) return false;
+    if (element.isContentEditable) return true;
+    return /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName);
+  };
+
+  const handleNames = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+  const handleElements = new Map();
+  let rotateHandleEl = null;
+  let rotateLineEl = null;
+  if (handles) {
+    handles.replaceChildren();
+    for (const name of handleNames) {
+      const handleEl = document.createElement("div");
+      handleEl.className = `asset-resize-handle asset-resize-handle--${name}`;
+      handleEl.dataset.handle = name;
+      handles.appendChild(handleEl);
+      handleElements.set(name, handleEl);
+    }
+    rotateLineEl = document.createElement("div");
+    rotateLineEl.className = "asset-rotate-handle-line";
+    handles.appendChild(rotateLineEl);
+    rotateHandleEl = document.createElement("div");
+    rotateHandleEl.className = "asset-rotate-handle";
+    rotateHandleEl.dataset.handle = "rotate";
+    handles.appendChild(rotateHandleEl);
+  }
+
+  const ROTATE_HANDLE_OFFSET = 24;
+
+  // Returns the union of every selected element's screen-space bounding box
+  // (relative to previewContainer), so the handles box expands to encompass
+  // the whole multi-selection rather than just the primary element.
+  const getSelectionScreenBox = (layerNumbers) => {
+    const containerRect = previewContainer.getBoundingClientRect();
+    const graphics = getGraphics();
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    let found = false;
+    for (const layerNumber of layerNumbers) {
+      const element = graphics[layerNumber - 1];
+      if (!element || !element.isConnected) continue;
+      const rect = element.getBoundingClientRect();
+      left = Math.min(left, rect.left);
+      top = Math.min(top, rect.top);
+      right = Math.max(right, rect.right);
+      bottom = Math.max(bottom, rect.bottom);
+      found = true;
+    }
+    if (!found) return null;
+    return {
+      left: left - containerRect.left,
+      top: top - containerRect.top,
+      right: right - containerRect.left,
+      bottom: bottom - containerRect.top
+    };
+  };
+
+  const updateHandles = (layerNumber) => {
+    if (!handles) return;
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    const layerNumbers = multiSelected.length > 1
+      ? multiSelected
+      : (layerNumber === null || layerNumber === undefined ? [] : [layerNumber]);
+    if (!layerNumbers.length) {
+      handles.hidden = true;
+      return;
+    }
+    const box = getSelectionScreenBox(layerNumbers);
+    if (!box) {
+      handles.hidden = true;
+      return;
+    }
+    const { left, top, right, bottom } = box;
+    const midX = (left + right) / 2;
+    const midY = (top + bottom) / 2;
+    const positions = {
+      nw: [left, top], n: [midX, top], ne: [right, top],
+      e: [right, midY], se: [right, bottom], s: [midX, bottom],
+      sw: [left, bottom], w: [left, midY]
+    };
+    for (const [name, handleEl] of handleElements) {
+      const [x, y] = positions[name];
+      handleEl.style.left = `${x}px`;
+      handleEl.style.top = `${y}px`;
+    }
+    // Rotating a multi-element group as a single unit isn't supported yet, so
+    // hide the rotate handle rather than let it silently rotate just one
+    // element out from under an apparent group selection.
+    const isGroup = layerNumbers.length > 1;
+    if (rotateHandleEl) {
+      rotateHandleEl.style.left = `${midX}px`;
+      rotateHandleEl.style.top = `${top - ROTATE_HANDLE_OFFSET}px`;
+      rotateHandleEl.hidden = isGroup;
+    }
+    if (rotateLineEl) {
+      rotateLineEl.style.left = `${midX}px`;
+      rotateLineEl.style.top = `${top - ROTATE_HANDLE_OFFSET}px`;
+      rotateLineEl.style.height = `${ROTATE_HANDLE_OFFSET}px`;
+      rotateLineEl.hidden = isGroup;
+    }
+    handles.classList.toggle("is-group", isGroup);
+    handles.hidden = false;
+  };
+
+
+  const updateTooltip = (layerNumber) => {
+    updateHandles(layerNumber);
+    if (!tooltip) return;
+    if (layerNumber === null || layerNumber === undefined) {
+      tooltip.hidden = true;
+      return;
+    }
+    const element = getGraphics()[layerNumber - 1];
+    if (!element || !element.isConnected) {
+      tooltip.hidden = true;
+      return;
+    }
+    const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    let bbox = { x: 0, y: 0, width: 0, height: 0 };
+    try { bbox = element.getBBox(); } catch { /* element may not be renderable yet */ }
+    const box = edit?.resize ?? {
+      left: bbox.x,
+      top: bbox.y,
+      right: bbox.x + bbox.width,
+      bottom: bbox.y + bbox.height
+    };
+    const x = box.left + (edit?.offsetX ?? 0);
+    const y = box.top + (edit?.offsetY ?? 0);
+    const width = box.right - box.left;
+    const height = box.bottom - box.top;
+    tooltip.replaceChildren();
+    const title = document.createElement("strong");
+    title.textContent = `Element ${layerNumber} · ${element.localName}`;
+    const position = document.createElement("span");
+    position.textContent = `X ${Math.round(x)}, Y ${Math.round(y)}`;
+    const size = document.createElement("span");
+    size.textContent = `${Math.round(width)} × ${Math.round(height)}`;
+    tooltip.append(title, position, size);
+    if (edit?.rotation) {
+      const rotation = document.createElement("span");
+      rotation.textContent = `${Math.round(edit.rotation % 360)}°`;
+      tooltip.append(rotation);
+    }
+    tooltip.hidden = false;
+    positionPrimaryTooltip(tooltip, previewContainer, element);
+  };
+
+  const moveSelectedLayers = (layerNumbers, offsetsByLayer) => {
+    for (const layerNumber of layerNumbers) {
+      const { offsetX, offsetY } = offsetsByLayer.get(layerNumber);
+      updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
+    }
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    updateTooltip(layersController.getSelectedLayer());
+  };
+
+  const onKeydown = (event) => {
+    const layerNumber = layersController.getSelectedLayer();
+    if (layerNumber === null || layerNumber === undefined || isTypingTarget(document.activeElement)) return;
+    const deltas = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    const delta = deltas[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 10 : 1;
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    const layerNumbers = multiSelected.length > 1 ? multiSelected : [layerNumber];
+    const offsetsByLayer = new Map();
+    for (const number of layerNumbers) {
+      const existing = assetLayerEdits.get(asset.id)?.get(number);
+      offsetsByLayer.set(number, {
+        offsetX: (existing?.offsetX || 0) + delta[0] * step,
+        offsetY: (existing?.offsetY || 0) + delta[1] * step
+      });
+    }
+    moveSelectedLayers(layerNumbers, offsetsByLayer);
+  };
+
+  const onPointerOver = (event) => {
+    const idx = getGraphics().indexOf(event.target);
+    if (idx === -1) return;
+    layersController.setHoveredLayer(idx + 1);
+  };
+  const onPointerOut = (event) => {
+    const idx = getGraphics().indexOf(event.target);
+    if (idx === -1) return;
+    layersController.clearHoveredLayer(idx + 1);
+  };
+
+  const getUnitsPerPixel = () => {
+    const svg = root.querySelector("svg");
+    const viewBox = svg?.viewBox?.baseVal;
+    const bounds = svg?.getBoundingClientRect();
+    return {
+      x: viewBox && bounds?.width ? viewBox.width / bounds.width : 1,
+      y: viewBox && bounds?.height ? viewBox.height / bounds.height : 1
+    };
+  };
+
+  // Alignment guides: while dragging/resizing, the moving element's screen
+  // edges/centers are compared against every other element's edges/centers
+  // (plus the artboard/svg bounds) and snapped when within GUIDE_SNAP_PX,
+  // with a cyan guide line drawn at the matched position. Comparisons and
+  // snapping happen in screen space (getBoundingClientRect, relative to
+  // previewContainer) since that's the space users visually align in; the
+  // resulting pixel correction is converted back to local SVG units via
+  // unitsPerPixel before being written into the edit.
+  const GUIDE_SNAP_PX = 6;
+
+  const clearGuides = () => {
+    if (guides) {
+      guides.replaceChildren();
+      guides.hidden = true;
+    }
+  };
+
+  const showGuide = (axis, screenPos) => {
+    if (!guides) return;
+    guides.hidden = false;
+    const line = document.createElement("div");
+    line.className = `asset-alignment-guide asset-alignment-guide--${axis}`;
+    if (axis === "v") line.style.left = `${screenPos}px`;
+    else line.style.top = `${screenPos}px`;
+    guides.appendChild(line);
+  };
+
+  // Returns edge/center rects (relative to previewContainer) for the
+  // artboard SVG and every graphic other than the ones in `excludeIndices`
+  // (accepts a single index or an array/Set of indices, so group moves can
+  // exclude every selected element rather than just one).
+  const getAlignmentTargets = (excludeIndices) => {
+    const excluded = new Set(
+      Array.isArray(excludeIndices) || excludeIndices instanceof Set
+        ? excludeIndices
+        : [excludeIndices]
+    );
+    const containerRect = previewContainer.getBoundingClientRect();
+    const toEdges = (rect) => ({
+      left: rect.left - containerRect.left,
+      right: rect.right - containerRect.left,
+      centerX: (rect.left + rect.right) / 2 - containerRect.left,
+      top: rect.top - containerRect.top,
+      bottom: rect.bottom - containerRect.top,
+      centerY: (rect.top + rect.bottom) / 2 - containerRect.top
+    });
+    const targets = [];
+    const svg = root.querySelector("svg");
+    if (svg) targets.push(toEdges(svg.getBoundingClientRect()));
+    getGraphics().forEach((el, idx) => {
+      if (excluded.has(idx)) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      targets.push(toEdges(rect));
+    });
+    return targets;
+  };
+
+  // Among `keys` (edge/center property names to test on the moving element),
+  // finds the target whose same-named property is closest to the moving
+  // element's value, within GUIDE_SNAP_PX. Same-type comparison only (left
+  // aligns to left, center to center, etc.) keeps snap behavior predictable.
+  const findAxisSnap = (activeEdges, keys, targets) => {
+    let best = null;
+    for (const key of keys) {
+      const activeVal = activeEdges[key];
+      for (const target of targets) {
+        const delta = target[key] - activeVal;
+        if (Math.abs(delta) <= GUIDE_SNAP_PX && (!best || Math.abs(delta) < Math.abs(best.delta))) {
+          best = { delta, screenPos: target[key], key };
+        }
+      }
+    }
+    return best;
+  };
+
+  const getElementEdges = (element) => {
+    const containerRect = previewContainer.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left - containerRect.left,
+      right: rect.right - containerRect.left,
+      centerX: (rect.left + rect.right) / 2 - containerRect.left,
+      top: rect.top - containerRect.top,
+      bottom: rect.bottom - containerRect.top,
+      centerY: (rect.top + rect.bottom) / 2 - containerRect.top
+    };
+  };
+
+  let dragState = null;
+  let resizeState = null;
+  let groupResizeState = null;
+  let rotateState = null;
+  let pendingSelectInfo = null;
+
+  // Captures a selected element's current box in two related coordinate
+  // frames: `base` is the pre-offset frame that per-element `resize` edits
+  // are stored in (same frame as the element's own untransformed getBBox()),
+  // and `adjusted` additionally applies the element's offsetX/offsetY so it
+  // lines up with every other selected element's box for union/proportional
+  // math. Elements aren't nested under any ambient transform here, so plain
+  // numeric addition is enough - no matrix math required.
+  const getElementResizeSnapshot = (layerNumber) => {
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return null;
+    let nativeBBox;
+    try { nativeBBox = element.getBBox(); } catch { return null; }
+    if (!nativeBBox) return null;
+    const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    const offsetX = edit?.offsetX || 0;
+    const offsetY = edit?.offsetY || 0;
+    const base = edit?.resize ?? {
+      left: nativeBBox.x,
+      top: nativeBBox.y,
+      right: nativeBBox.x + nativeBBox.width,
+      bottom: nativeBBox.y + nativeBBox.height
+    };
+    return {
+      layerNumber,
+      nativeBBox,
+      offsetX,
+      offsetY,
+      base,
+      adjusted: {
+        left: base.left + offsetX,
+        top: base.top + offsetY,
+        right: base.right + offsetX,
+        bottom: base.bottom + offsetY
+      }
+    };
+  };
+
+  const startGroupResize = (handleName, layerNumbers, event) => {
+    const entries = layerNumbers.map(getElementResizeSnapshot).filter(Boolean);
+    if (entries.length < 2) return;
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const entry of entries) {
+      left = Math.min(left, entry.adjusted.left);
+      top = Math.min(top, entry.adjusted.top);
+      right = Math.max(right, entry.adjusted.right);
+      bottom = Math.max(bottom, entry.adjusted.bottom);
+    }
+    groupResizeState = {
+      pointerId: event.pointerId,
+      handle: handleName,
+      startX: event.clientX,
+      startY: event.clientY,
+      unitsPerPixel: getUnitsPerPixel(),
+      initialBox: { left, top, right, bottom },
+      entries
+    };
+    event.target.setPointerCapture?.(event.pointerId);
+  };
+
+  const onHandlePointerDown = (event) => {
+    const handleName = event.target?.dataset?.handle;
+    if (!handleName) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    if (multiSelected.length > 1) {
+      // Group rotation isn't supported (the rotate handle is hidden whenever
+      // a group is selected - see updateHandles), so this branch only ever
+      // needs to handle resize handles.
+      if (handleName === "rotate") return;
+      startGroupResize(handleName, multiSelected, event);
+      return;
+    }
+    const layerNumber = layersController.getSelectedLayer();
+    if (layerNumber === null || layerNumber === undefined) return;
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return;
+    if (handleName === "rotate") {
+      const rect = element.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const existingRotation = assetLayerEdits.get(asset.id)?.get(layerNumber)?.rotation || 0;
+      rotateState = {
+        layerNumber,
+        pointerId: event.pointerId,
+        centerX,
+        centerY,
+        startAngleDeg: existingRotation,
+        startPointerAngleDeg: Math.atan2(event.clientY - centerY, event.clientX - centerX) * (180 / Math.PI)
+      };
+      event.target.setPointerCapture?.(event.pointerId);
+      return;
+    }
+    let nativeBBox;
+    try { nativeBBox = element.getBBox(); } catch { return; }
+    if (!nativeBBox) return;
+    const unitsPerPixel = getUnitsPerPixel();
+    const existingResize = assetLayerEdits.get(asset.id)?.get(layerNumber)?.resize;
+    // The native box is captured fresh every drag (getBBox() ignores the
+    // element's own transform, so this is always the untransformed geometry).
+    // If a previous resize already exists, its stored current edges continue
+    // to describe the effective (scaled) box relative to THIS native box - but
+    // only if the native box hasn't changed shape since. Guard against that by
+    // falling back to the fresh native box when there's no existing resize.
+    const currentBox = existingResize ?? {
+      left: nativeBBox.x,
+      top: nativeBBox.y,
+      right: nativeBBox.x + nativeBBox.width,
+      bottom: nativeBBox.y + nativeBBox.height
+    };
+    resizeState = {
+      layerNumber,
+      pointerId: event.pointerId,
+      handle: handleName,
+      startX: event.clientX,
+      startY: event.clientY,
+      nativeBBox,
+      currentBox,
+      unitsPerPixel
+    };
+    event.target.setPointerCapture?.(event.pointerId);
+  };
+
+  const onPointerDown = (event) => {
+    const graphics = getGraphics();
+    const idx = graphics.indexOf(event.target);
+    if (idx === -1) {
+      // Clicked off the artboard's drawn elements (background/empty canvas area) — deselect.
+      const selectedLayerNumber = layersController.getSelectedLayer();
+      if (selectedLayerNumber !== null && selectedLayerNumber !== undefined) {
+        layersController.selectLayer(selectedLayerNumber);
+      }
+      return;
+    }
+    const layerNumber = idx + 1;
+    if (event.shiftKey) {
+      // Shift-click toggles this element in/out of the multi-selection
+      // without starting a drag, so a chain of shift-clicks just builds up
+      // the selection rather than moving the last-clicked element.
+      event.preventDefault();
+      layersController.selectLayer(layerNumber, { additive: true });
+      return;
+    }
+    const selectedLayerNumber = layersController.getSelectedLayer();
+    const multiSelected = layersController.getMultiSelection?.() || [];
+    const isGroupMember = multiSelected.length > 1 && multiSelected.includes(layerNumber);
+    if (layerNumber === selectedLayerNumber || isGroupMember) {
+      const { x: scaleX, y: scaleY } = getUnitsPerPixel();
+      const layerNumbers = isGroupMember ? multiSelected : [layerNumber];
+      const bases = new Map();
+      for (const number of layerNumbers) {
+        const existing = assetLayerEdits.get(asset.id)?.get(number);
+        bases.set(number, { offsetX: existing?.offsetX || 0, offsetY: existing?.offsetY || 0 });
+      }
+      dragState = {
+        layerNumbers,
+        primaryLayerNumber: layerNumber,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        bases,
+        scaleX,
+        scaleY,
+        moved: false
+      };
+      event.target.setPointerCapture?.(event.pointerId);
+    } else {
+      pendingSelectInfo = { layerNumber, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+    }
+    event.preventDefault();
+  };
+  const onPointerMove = (event) => {
+    if (rotateState && event.pointerId === rotateState.pointerId) {
+      const { centerX, centerY, startAngleDeg, startPointerAngleDeg, layerNumber } = rotateState;
+      const pointerAngleDeg = Math.atan2(event.clientY - centerY, event.clientX - centerX) * (180 / Math.PI);
+      let rotation = startAngleDeg + (pointerAngleDeg - startPointerAngleDeg);
+      if (event.shiftKey) rotation = Math.round(rotation / 15) * 15; // snap to 15° increments
+      updateAssetLayerEdits(asset.id, layerNumber, { rotation });
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      updateTooltip(layerNumber);
+      return;
+    }
+    if (groupResizeState && event.pointerId === groupResizeState.pointerId) {
+      const { handle, unitsPerPixel, initialBox, entries, startX, startY } = groupResizeState;
+      const dxLocal = (event.clientX - startX) * unitsPerPixel.x;
+      const dyLocal = (event.clientY - startY) * unitsPerPixel.y;
+      const minSize = 4;
+      let { left, top, right, bottom } = initialBox;
+      // Only the edges implicated by the dragged handle move, exactly like
+      // single-element resize - the fixed anchor side(s) of the group box
+      // never move.
+      if (handle.includes("e")) right = Math.max(left + minSize, right + dxLocal);
+      if (handle.includes("w")) left = Math.min(right - minSize, left + dxLocal);
+      if (handle.includes("s")) bottom = Math.max(top + minSize, bottom + dyLocal);
+      if (handle.includes("n")) top = Math.min(bottom - minSize, top + dyLocal);
+      const initWidth = initialBox.right - initialBox.left;
+      const initHeight = initialBox.bottom - initialBox.top;
+      if (event.shiftKey && initWidth > 0 && initHeight > 0) {
+        // Lock the whole group's box to its own starting aspect ratio, same
+        // approach as single-element resize but applied to the group box.
+        const aspect = initWidth / initHeight;
+        const touchesX = handle.includes("e") || handle.includes("w");
+        const touchesY = handle.includes("n") || handle.includes("s");
+        if (touchesX && touchesY) {
+          const dominant = Math.abs(dxLocal) >= Math.abs(dyLocal) ? "x" : "y";
+          if (dominant === "x") {
+            const height = Math.max(minSize, (right - left) / aspect);
+            if (handle.includes("s")) bottom = top + height; else top = bottom - height;
+          } else {
+            const width = Math.max(minSize, (bottom - top) * aspect);
+            if (handle.includes("e")) right = left + width; else left = right - width;
+          }
+        } else if (touchesX) {
+          const height = Math.max(minSize, (right - left) / aspect);
+          const centerY = (initialBox.top + initialBox.bottom) / 2;
+          top = centerY - height / 2;
+          bottom = centerY + height / 2;
+        } else if (touchesY) {
+          const width = Math.max(minSize, (bottom - top) * aspect);
+          const centerX = (initialBox.left + initialBox.right) / 2;
+          left = centerX - width / 2;
+          right = centerX + width / 2;
+        }
+      }
+      // Scale every selected element's box proportionally within the new
+      // group box, using each element's position relative to the *initial*
+      // group box so repeatedly resizing keeps all elements moving in
+      // lockstep rather than compounding drift.
+      const scaleX = initWidth > 0 ? (right - left) / initWidth : 1;
+      const scaleY = initHeight > 0 ? (bottom - top) / initHeight : 1;
+      for (const entry of entries) {
+        const { layerNumber, nativeBBox, offsetX, offsetY, adjusted } = entry;
+        const newLeft = left + (adjusted.left - initialBox.left) * scaleX;
+        const newRight = left + (adjusted.right - initialBox.left) * scaleX;
+        const newTop = top + (adjusted.top - initialBox.top) * scaleY;
+        const newBottom = top + (adjusted.bottom - initialBox.top) * scaleY;
+        updateAssetLayerEdits(asset.id, layerNumber, {
+          resize: {
+            nativeLeft: nativeBBox.x,
+            nativeTop: nativeBBox.y,
+            nativeWidth: nativeBBox.width,
+            nativeHeight: nativeBBox.height,
+            // `resize` edits are stored pre-offset (see the single-element
+            // resize path below), so the element's own unchanged offsetX/Y
+            // is subtracted back out here.
+            left: newLeft - offsetX,
+            top: newTop - offsetY,
+            right: newRight - offsetX,
+            bottom: newBottom - offsetY
+          }
+        });
+      }
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      updateHandles(layersController.getSelectedLayer());
+      return;
+    }
+    if (resizeState && event.pointerId === resizeState.pointerId) {
+      const { handle, nativeBBox, currentBox, unitsPerPixel, layerNumber, startX, startY } = resizeState;
+      const dxLocal = (event.clientX - startX) * unitsPerPixel.x;
+      const dyLocal = (event.clientY - startY) * unitsPerPixel.y;
+      const minSize = 2;
+      let { left, top, right, bottom } = currentBox;
+      // Only the edges implicated by the dragged handle move; edges not being
+      // dragged keep their previously stored value, so switching handles
+      // between separate resize operations never disturbs the fixed side(s).
+      if (handle.includes("e")) right = Math.max(left + minSize, right + dxLocal);
+      if (handle.includes("w")) left = Math.min(right - minSize, left + dxLocal);
+      if (handle.includes("s")) bottom = Math.max(top + minSize, bottom + dyLocal);
+      if (handle.includes("n")) top = Math.min(bottom - minSize, top + dyLocal);
+      if (event.shiftKey && nativeBBox.width > 0 && nativeBBox.height > 0) {
+        // Lock the box to the element's native aspect ratio. Corner handles
+        // already touch both axes, so whichever axis the pointer moved
+        // further along drives the locked dimension, recomputed from the
+        // fixed anchor edge implied by the handle. Edge handles only touch
+        // one axis normally; with the ratio locked they also grow/shrink the
+        // perpendicular axis, centered on the box's current midpoint since an
+        // edge handle has no natural anchor on that axis.
+        const nativeAspect = nativeBBox.width / nativeBBox.height;
+        const touchesX = handle.includes("e") || handle.includes("w");
+        const touchesY = handle.includes("n") || handle.includes("s");
+        if (touchesX && touchesY) {
+          const dominant = Math.abs(dxLocal) >= Math.abs(dyLocal) ? "x" : "y";
+          if (dominant === "x") {
+            const height = Math.max(minSize, (right - left) / nativeAspect);
+            if (handle.includes("s")) bottom = top + height; else top = bottom - height;
+          } else {
+            const width = Math.max(minSize, (bottom - top) * nativeAspect);
+            if (handle.includes("e")) right = left + width; else left = right - width;
+          }
+        } else if (touchesX) {
+          const height = Math.max(minSize, (right - left) / nativeAspect);
+          const centerY = (currentBox.top + currentBox.bottom) / 2;
+          top = centerY - height / 2;
+          bottom = centerY + height / 2;
+        } else if (touchesY) {
+          const width = Math.max(minSize, (bottom - top) * nativeAspect);
+          const centerX = (currentBox.left + currentBox.right) / 2;
+          left = centerX - width / 2;
+          right = centerX + width / 2;
+        }
+      }
+      const applyResize = (box) => {
+        updateAssetLayerEdits(asset.id, layerNumber, {
+          resize: {
+            nativeLeft: nativeBBox.x,
+            nativeTop: nativeBBox.y,
+            nativeWidth: nativeBBox.width,
+            nativeHeight: nativeBBox.height,
+            ...box
+          }
+        });
+        applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      };
+      applyResize({ left, top, right, bottom });
+      // Snap whichever edges the dragged handle actually moves against the
+      // edges/centers of other elements and the artboard; edges the handle
+      // doesn't touch are left alone so the fixed anchor side never moves.
+      clearGuides();
+      if (!event.ctrlKey && !event.metaKey) {
+        const element = getGraphics()[layerNumber - 1];
+        if (element) {
+          const targets = getAlignmentTargets(layerNumber - 1);
+          const activeEdges = getElementEdges(element);
+          let snappedX = false;
+          let snappedY = false;
+          if (handle.includes("e")) {
+            const snap = findAxisSnap(activeEdges, ["right"], targets);
+            if (snap) { right += snap.delta * unitsPerPixel.x; snappedX = true; showGuide("v", snap.screenPos); }
+          } else if (handle.includes("w")) {
+            const snap = findAxisSnap(activeEdges, ["left"], targets);
+            if (snap) { left += snap.delta * unitsPerPixel.x; snappedX = true; showGuide("v", snap.screenPos); }
+          }
+          if (handle.includes("s")) {
+            const snap = findAxisSnap(activeEdges, ["bottom"], targets);
+            if (snap) { bottom += snap.delta * unitsPerPixel.y; snappedY = true; showGuide("h", snap.screenPos); }
+          } else if (handle.includes("n")) {
+            const snap = findAxisSnap(activeEdges, ["top"], targets);
+            if (snap) { top += snap.delta * unitsPerPixel.y; snappedY = true; showGuide("h", snap.screenPos); }
+          }
+          if (snappedX || snappedY) applyResize({ left, top, right, bottom });
+        }
+      }
+      updateTooltip(layerNumber);
+      return;
+    }
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const dx = event.clientX - dragState.startX;
+    const dy = event.clientY - dragState.startY;
+    if (Math.hypot(dx, dy) > 2) dragState.moved = true;
+    let deltaX = dx * dragState.scaleX;
+    let deltaY = dy * dragState.scaleY;
+    // Every dragged element (a group of one for a normal single-element
+    // drag) moves by the same delta relative to its own starting offset, so
+    // the whole multi-selection stays in lockstep rather than compounding
+    // drift across pointermove events.
+    const applyGroupOffset = (offsetDx, offsetDy) => {
+      for (const layerNumber of dragState.layerNumbers) {
+        const base = dragState.bases.get(layerNumber);
+        updateAssetLayerEdits(asset.id, layerNumber, {
+          offsetX: base.offsetX + offsetDx,
+          offsetY: base.offsetY + offsetDy
+        });
+      }
+      applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    };
+    applyGroupOffset(deltaX, deltaY);
+    // Snap the union of every dragged element's edges/centers to other
+    // (non-dragged) elements and the artboard on both axes independently.
+    clearGuides();
+    if (!event.ctrlKey && !event.metaKey) {
+      const graphics = getGraphics();
+      const excludeIndices = dragState.layerNumbers.map((n) => n - 1);
+      const targets = getAlignmentTargets(excludeIndices);
+      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      let found = false;
+      for (const layerNumber of dragState.layerNumbers) {
+        const element = graphics[layerNumber - 1];
+        if (!element) continue;
+        const edges = getElementEdges(element);
+        left = Math.min(left, edges.left);
+        top = Math.min(top, edges.top);
+        right = Math.max(right, edges.right);
+        bottom = Math.max(bottom, edges.bottom);
+        found = true;
+      }
+      if (found) {
+        const activeEdges = { left, right, centerX: (left + right) / 2, top, bottom, centerY: (top + bottom) / 2 };
+        const xSnap = findAxisSnap(activeEdges, ["left", "right", "centerX"], targets);
+        const ySnap = findAxisSnap(activeEdges, ["top", "bottom", "centerY"], targets);
+        if (xSnap) { deltaX += xSnap.delta * dragState.scaleX; showGuide("v", xSnap.screenPos); }
+        if (ySnap) { deltaY += ySnap.delta * dragState.scaleY; showGuide("h", ySnap.screenPos); }
+        if (xSnap || ySnap) applyGroupOffset(deltaX, deltaY);
+      }
+    }
+    updateTooltip(dragState.primaryLayerNumber);
+  };
+
+  const onPointerUp = (event) => {
+    if (resizeState && event.pointerId === resizeState.pointerId) {
+      clearGuides();
+    }
+    if (dragState && event.pointerId === dragState.pointerId) {
+      clearGuides();
+    }
+    if (rotateState && event.pointerId === rotateState.pointerId) {
+      rotateState = null;
+      return;
+    }
+    if (groupResizeState && event.pointerId === groupResizeState.pointerId) {
+      groupResizeState = null;
+      return;
+    }
+    if (resizeState && event.pointerId === resizeState.pointerId) {
+      resizeState = null;
+      return;
+    }
+    if (dragState && event.pointerId === dragState.pointerId) {
+      const { primaryLayerNumber, moved } = dragState;
+      dragState = null;
+      if (!moved) layersController.selectLayer(primaryLayerNumber);
+      return;
+    }
+    if (pendingSelectInfo && event.pointerId === pendingSelectInfo.pointerId) {
+      const { layerNumber, startX, startY } = pendingSelectInfo;
+      pendingSelectInfo = null;
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) < 3) {
+        layersController.selectLayer(layerNumber);
+      }
+    }
+  };
+  const onWindowResize = () => {
+    const layerNumber = layersController.getSelectedLayer();
+    if (layerNumber !== null && layerNumber !== undefined) updateTooltip(layerNumber);
+  };
+
+  window.addEventListener("keydown", onKeydown);
+  previewContainer.addEventListener("pointerdown", onPointerDown);
+  handles?.addEventListener("pointerdown", onHandlePointerDown);
+  root.addEventListener("pointerover", onPointerOver);
+  root.addEventListener("pointerout", onPointerOut);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+  window.addEventListener("resize", onWindowResize);
+
+  return {
+    updateTooltip,
+    cleanup: () => {
+      window.removeEventListener("keydown", onKeydown);
+      previewContainer.removeEventListener("pointerdown", onPointerDown);
+      handles?.removeEventListener("pointerdown", onHandlePointerDown);
+      root.removeEventListener("pointerover", onPointerOver);
+      root.removeEventListener("pointerout", onPointerOut);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("resize", onWindowResize);
+      if (tooltip) tooltip.hidden = true;
+      if (handles) handles.hidden = true;
+      clearGuides();
+    }
+  };
+}
+
+function createSteppedNumberField({ value, step, ariaLabel, onChange }) {
+  const field = document.createElement("span");
+  field.className = "asset-layer-attr-field";
+  const input = document.createElement("input");
+  input.type = "number";
+  input.step = step;
+  input.value = value;
+  input.className = "asset-layer-attr-input";
+  input.setAttribute("aria-label", ariaLabel);
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => event.stopPropagation());
+  const commit = (next) => {
+    input.value = String(next);
+    onChange(next);
+  };
+  input.addEventListener("input", () => {
+    const next = Number(input.value);
+    if (Number.isFinite(next)) onChange(next);
+  });
+  const stepAmount = Number(step) || 1;
+  const steppers = document.createElement("span");
+  steppers.className = "asset-layer-attr-steppers";
+  const upButton = document.createElement("button");
+  upButton.type = "button";
+  upButton.className = "asset-layer-attr-step asset-layer-attr-step--up";
+  upButton.setAttribute("aria-label", `Increase ${ariaLabel}`);
+  upButton.innerHTML = '<i data-lucide="chevron-up" aria-hidden="true"></i>';
+  upButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const current = Number(input.value);
+    commit((Number.isFinite(current) ? current : 0) + stepAmount);
+  });
+  const downButton = document.createElement("button");
+  downButton.type = "button";
+  downButton.className = "asset-layer-attr-step asset-layer-attr-step--down";
+  downButton.setAttribute("aria-label", `Decrease ${ariaLabel}`);
+  downButton.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+  downButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const current = Number(input.value);
+    commit((Number.isFinite(current) ? current : 0) - stepAmount);
+  });
+  steppers.append(upButton, downButton);
+  field.append(input, steppers);
+  return { field, input };
 }
 
 function renderAssetColorList(root, asset, onHighlight) {
@@ -440,9 +1670,9 @@ function renderAssetDiagnostics(root, asset) {
     const diagnostics = [
       ["ViewBox", data.viewBox],
       ["Source size", `${data.width} × ${data.height}`],
-      ["Paint layers", `${data.paintLayerCount} primitives`],
-      ["Layer order", "DOM order, bottom → top"],
-      ["Topmost layer", data.topmostLayer],
+      ["Elements", `${data.paintLayerCount} primitives`],
+      ["Element order", "DOM order, bottom → top"],
+      ["Topmost element", data.topmostLayer],
       ["Paths", `${data.pathCount} (${data.closedPathCount} closed, ${data.pathCount - data.closedPathCount} open)`],
       ["Path subpaths", String(data.pathSubpathCount)],
       ["Path commands", String(data.pathCommandCount)],
@@ -465,31 +1695,219 @@ function renderAssetDiagnostics(root, asset) {
   });
 }
 
-function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
+function assetLayerSelection(assetId) {
+  if (!assetLayerSelections.has(assetId)) assetLayerSelections.set(assetId, new Set());
+  return assetLayerSelections.get(assetId);
+}
+
+function collapsedGroupsForAsset(assetId) {
+  if (!assetCollapsedGroups.has(assetId)) assetCollapsedGroups.set(assetId, new WeakSet());
+  return assetCollapsedGroups.get(assetId);
+}
+
+function renderAssetLayerActions(actionsBar, data, onCombine, onClear, onAdd) {
+  actionsBar.replaceChildren();
+  actionsBar.hidden = false;
+
+  const addGroup = document.createElement("div");
+  addGroup.className = "asset-layer-add-group";
+
+  let selectedShape = NEW_ELEMENT_SHAPES[0].value;
+  const getShape = () => NEW_ELEMENT_SHAPES.find(({ value }) => value === selectedShape) || NEW_ELEMENT_SHAPES[0];
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "asset-layer-add-button";
+  addButton.dataset.shape = selectedShape;
+  addButton.title = "Add a new rectangle at the topmost layer";
+  addButton.innerHTML = '<i data-lucide="square" aria-hidden="true"></i><span>Add element</span>';
+  addButton.addEventListener("click", () => onAdd(selectedShape));
+
+  const shapeMenu = document.createElement("details");
+  shapeMenu.className = "asset-layer-shape-menu";
+  const shapeMenuToggle = document.createElement("summary");
+  shapeMenuToggle.setAttribute("aria-label", "Change element shape");
+  shapeMenuToggle.title = "Change element shape";
+  shapeMenuToggle.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+  const shapeMenuList = document.createElement("div");
+  shapeMenuList.className = "asset-layer-shape-options";
+  for (const { value, label, icon } of NEW_ELEMENT_SHAPES) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "asset-layer-shape-option";
+    option.dataset.shape = value;
+    option.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i><span>${label}</span>`;
+    option.addEventListener("click", () => {
+      selectedShape = value;
+      const shape = getShape();
+      addButton.dataset.shape = selectedShape;
+      addButton.title = `Add a new ${shape.label.toLowerCase()} at the topmost layer`;
+      const icon = document.createElement("i");
+      icon.dataset.lucide = shape.icon;
+      icon.setAttribute("aria-hidden", "true");
+      addButton.querySelector("[data-lucide], svg")?.replaceWith(icon);
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      shapeMenu.open = false;
+    });
+    shapeMenuList.appendChild(option);
+  }
+  shapeMenu.append(shapeMenuToggle, shapeMenuList);
+  addGroup.append(addButton, shapeMenu);
+
+  const combineGroup = document.createElement("div");
+  combineGroup.className = "asset-layer-combine-group";
+  combineGroup.hidden = data.paintLayerCount < 2;
+
+  const status = document.createElement("p");
+  status.className = "asset-layer-actions-status";
+  status.setAttribute("aria-live", "polite");
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "asset-layer-actions-clear";
+  clearButton.textContent = "Clear";
+  clearButton.title = "Clear element selection";
+  clearButton.hidden = true;
+  clearButton.addEventListener("click", onClear);
+
+  const combineButton = document.createElement("button");
+  combineButton.type = "button";
+  combineButton.className = "asset-layer-combine-button";
+  combineButton.disabled = true;
+  combineButton.title = "Wrap the selected elements in a group";
+  combineButton.innerHTML = '<i data-lucide="layers" aria-hidden="true"></i><span>Combine elements</span>';
+  combineButton.addEventListener("click", onCombine);
+
+  combineGroup.append(status, clearButton, combineButton);
+  actionsBar.append(addGroup, combineGroup);
+  return { status, combineButton, clearButton, getShape };
+}
+
+function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, onEdit, onSelect, onMultiSelectChange) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
   editorPanel.hidden = true;
   editorPanel.replaceChildren();
+  actionsBar.hidden = true;
+  actionsBar.replaceChildren();
+
+  // Populated once asset data loads; exposes hover/selection sync methods so
+  // the primary preview canvas can stay in sync with this elements list.
+  const controller = {
+    setHoveredLayer: () => {},
+    clearHoveredLayer: () => {},
+    selectLayer: () => {},
+    getSelectedLayer: () => null,
+    getMultiSelection: () => []
+  };
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
     root.textContent = "";
-    let selectedLayerNumber = null;
+    const pendingSelection = assetPendingElementSelection.get(asset.id);
+    if (pendingSelection !== undefined) assetPendingElementSelection.delete(asset.id);
+    let selectedLayerNumber = pendingSelection ?? null;
+    // Elements shift-clicked together (canvas or panel row) so multiple can be
+    // moved/inspected as a group. Distinct from the checkbox-driven `selection`
+    // Set below, which only tracks candidates for the "combine into group"
+    // action - keeping the two decoupled means shift-clicking to multi-select
+    // never clobbers an in-progress combine checkbox selection, and vice versa.
+    let multiSelection = new Set(selectedLayerNumber !== null ? [selectedLayerNumber] : []);
+    onSelect?.(selectedLayerNumber);
+    onMultiSelectChange?.([...multiSelection]);
     let hoveredLayerNumber = null;
     let focusedLayerNumber = null;
     const layerItems = new Map();
     const layerButtons = new Map();
+    const layerCheckboxes = new Map();
     const layerEdits = assetLayerEdits.get(asset.id) || new Map();
+    const selection = assetLayerSelection(asset.id);
+    for (const layerNumber of [...selection]) {
+      if (layerNumber > data.paintLayerCount) selection.delete(layerNumber);
+    }
+    const addElement = (shape, container) => {
+      createAssetElement(asset, shape, container, (newNumber) => {
+        if (newNumber) assetPendingElementSelection.set(asset.id, newNumber);
+        showToast(`Added a new ${shape} element.`);
+        renderAssetDetail(asset.id);
+      });
+    };
+    const { status: combineStatus, combineButton, clearButton } = renderAssetLayerActions(actionsBar, data, () => {
+      const combining = [...selection];
+      combineAssetLayers(asset, combining, (combinedNumbers) => {
+        selection.clear();
+        if (combinedNumbers?.length) assetPendingGroupFocus.set(asset.id, new Set(combinedNumbers));
+        showToast(`Combined ${combinedNumbers.length || combining.length} elements into a group.`);
+        renderAssetDetail(asset.id);
+      });
+    }, () => {
+      selection.clear();
+      syncSelection();
+    }, (shape) => addElement(shape, data.svg));
+    function syncSelection() {
+      for (const [layerNumber, item] of layerItems) {
+        const isSelected = selection.has(layerNumber);
+        item.classList.toggle("is-multi-selected", isSelected);
+        const checkbox = layerCheckboxes.get(layerNumber);
+        if (checkbox) checkbox.checked = isSelected;
+      }
+      combineButton.disabled = selection.size < 2;
+      clearButton.hidden = selection.size === 0;
+      combineStatus.textContent = selection.size === 0
+        ? "Select 2 elements to combine."
+        : selection.size === 1
+          ? "Select one more element to combine."
+          : `${selection.size} selected. Ready to combine.`;
+    }
     const syncHighlight = () => {
       const highlightedLayerNumber = hoveredLayerNumber ?? focusedLayerNumber ?? selectedLayerNumber;
       for (const [layerNumber, item] of layerItems) {
         item.classList.toggle("is-active", layerNumber === highlightedLayerNumber);
-        item.classList.toggle("is-selected", layerNumber === selectedLayerNumber);
-        layerButtons.get(layerNumber)?.setAttribute("aria-pressed", String(layerNumber === selectedLayerNumber));
+        item.classList.toggle("is-selected", multiSelection.has(layerNumber));
+        layerButtons.get(layerNumber)?.setAttribute("aria-pressed", String(multiSelection.has(layerNumber)));
       }
       onHighlight(highlightedLayerNumber, highlightedLayerNumber !== null);
     };
-    for (const layer of [...data.paintLayers].reverse()) {
+    // `options.additive` (shift-click) adds/removes a layer from the
+    // multi-selection without disturbing the rest of it; a plain click
+    // replaces the whole multi-selection with just the toggled layer (or
+    // clears it, matching the pre-existing single-select toggle behavior).
+    const selectLayer = (layerNumber, options = {}) => {
+      if (options.additive) {
+        if (multiSelection.has(layerNumber)) {
+          multiSelection.delete(layerNumber);
+          if (selectedLayerNumber === layerNumber) {
+            const remaining = [...multiSelection];
+            selectedLayerNumber = remaining.length ? remaining[remaining.length - 1] : null;
+          }
+        } else {
+          multiSelection.add(layerNumber);
+          selectedLayerNumber = layerNumber;
+        }
+      } else {
+        selectedLayerNumber = selectedLayerNumber === layerNumber ? null : layerNumber;
+        multiSelection = new Set(selectedLayerNumber !== null ? [selectedLayerNumber] : []);
+      }
+      // Keep the combine checkboxes in sync with whatever is currently
+      // (multi-)selected, so shift-clicking elements on the canvas or panel
+      // checks their boxes without any extra step.
+      selection.clear();
+      for (const number of multiSelection) selection.add(number);
+      syncSelection();
+      onSelect?.(selectedLayerNumber);
+      onMultiSelectChange?.([...multiSelection]);
+      syncHighlight();
+    };
+    controller.setHoveredLayer = (layerNumber) => { hoveredLayerNumber = layerNumber; syncHighlight(); };
+    controller.clearHoveredLayer = (layerNumber) => {
+      if (hoveredLayerNumber === layerNumber) hoveredLayerNumber = null;
+      syncHighlight();
+    };
+    controller.selectLayer = selectLayer;
+    controller.getSelectedLayer = () => selectedLayerNumber;
+    controller.getMultiSelection = () => [...multiSelection];
+    const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
+    function renderElementRow(layer) {
       const item = document.createElement("li");
       item.value = layer.number;
       let toggleSelection;
@@ -499,10 +1917,7 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
           if (hoveredLayerNumber === layer.number) hoveredLayerNumber = null;
           syncHighlight();
         });
-        toggleSelection = () => {
-          selectedLayerNumber = selectedLayerNumber === layer.number ? null : layer.number;
-          syncHighlight();
-        };
+        toggleSelection = (event) => selectLayer(layer.number, { additive: event?.shiftKey });
         item.addEventListener("click", toggleSelection);
       }
       const number = document.createElement(onHighlight ? "button" : "span");
@@ -510,7 +1925,7 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       number.textContent = String(layer.number);
       if (onHighlight) {
         number.type = "button";
-        number.setAttribute("aria-label", `Select layer ${layer.number}`);
+        number.setAttribute("aria-label", `Select element ${layer.number}`);
         number.setAttribute("aria-pressed", "false");
         number.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -522,6 +1937,29 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
           syncHighlight();
         });
       }
+      const selectLabel = document.createElement("label");
+      selectLabel.className = "asset-layer-select";
+      const selectCheckbox = document.createElement("input");
+      selectCheckbox.type = "checkbox";
+      selectCheckbox.className = "asset-layer-select-input";
+      selectCheckbox.checked = selection.has(layer.number);
+      selectCheckbox.setAttribute("aria-label", `Select element ${layer.number} for combining`);
+      selectLabel.title = `Select element ${layer.number} for combining`;
+      selectLabel.addEventListener("click", (event) => event.stopPropagation());
+      selectCheckbox.addEventListener("click", (event) => event.stopPropagation());
+      selectCheckbox.addEventListener("change", () => {
+        if (selectCheckbox.checked) selection.add(layer.number);
+        else selection.delete(layer.number);
+        syncSelection();
+      });
+      // Keep row drag-and-drop from hijacking checkbox interaction.
+      const restoreDraggable = () => { item.draggable = true; };
+      selectLabel.addEventListener("pointerdown", () => { item.draggable = false; });
+      selectLabel.addEventListener("pointerup", restoreDraggable);
+      selectLabel.addEventListener("pointercancel", restoreDraggable);
+      item.addEventListener("mouseleave", restoreDraggable);
+      selectLabel.appendChild(selectCheckbox);
+
       const identity = document.createElement("div");
       identity.className = "asset-layer-identity";
       const elementName = document.createElement("code");
@@ -532,11 +1970,57 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
         id.textContent = `#${layer.id}`;
         identity.appendChild(id);
       }
-      if (layer.groupDepth) {
-        const depth = document.createElement("span");
-        depth.textContent = `group depth ${layer.groupDepth}`;
-        identity.appendChild(depth);
-      }
+
+      const reorder = document.createElement("span");
+      reorder.className = "asset-layer-reorder";
+      const moveUpButton = document.createElement("button");
+      moveUpButton.type = "button";
+      moveUpButton.className = "asset-layer-reorder-button";
+      moveUpButton.setAttribute("aria-label", `Move element ${layer.number} up`);
+      moveUpButton.innerHTML = '<i data-lucide="chevron-up" aria-hidden="true"></i>';
+      moveUpButton.disabled = layer.number >= data.paintLayerCount;
+      moveUpButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        reorderAssetLayer(asset, layer.number, layer.number + 1, () => renderAssetDetail(asset.id));
+      });
+      const moveDownButton = document.createElement("button");
+      moveDownButton.type = "button";
+      moveDownButton.className = "asset-layer-reorder-button";
+      moveDownButton.setAttribute("aria-label", `Move element ${layer.number} down`);
+      moveDownButton.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+      moveDownButton.disabled = layer.number <= 1;
+      moveDownButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        reorderAssetLayer(asset, layer.number, layer.number - 1, () => renderAssetDetail(asset.id));
+      });
+      reorder.append(moveUpButton, moveDownButton);
+
+      item.draggable = true;
+      item.classList.add("asset-layer-draggable");
+      item.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", String(layer.number));
+        event.dataTransfer.effectAllowed = "move";
+        item.classList.add("is-dragging");
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("is-dragging");
+        for (const otherItem of layerItems.values()) otherItem.classList.remove("is-drag-over");
+      });
+      item.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        item.classList.add("is-drag-over");
+      });
+      item.addEventListener("dragleave", () => {
+        item.classList.remove("is-drag-over");
+      });
+      item.addEventListener("drop", (event) => {
+        event.preventDefault();
+        item.classList.remove("is-drag-over");
+        const sourceNumber = Number(event.dataTransfer.getData("text/plain"));
+        if (!Number.isFinite(sourceNumber) || sourceNumber === layer.number) return;
+        reorderAssetLayer(asset, sourceNumber, layer.number, () => renderAssetDetail(asset.id));
+      });
 
       const details = document.createElement("div");
       details.className = "asset-layer-details";
@@ -549,8 +2033,19 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
         popover.style.top = `${Math.min(triggerBounds.bottom + 6, window.innerHeight - popoverBounds.height - 8)}px`;
         popover.style.left = `${Math.max(8, Math.min(triggerBounds.left, window.innerWidth - popoverBounds.width - 8))}px`;
       };
-      const currentEdits = layerEdits.get(layer.number) || { paints: {} };
+      const currentEdits = layerEdits.get(layer.number) || { paints: {}, attrs: {} };
       let firstColorInput = null;
+      const colorInputsByProperty = new Map();
+      const registerColorInput = (property, input, onSync) => {
+        if (!colorInputsByProperty.has(property)) colorInputsByProperty.set(property, []);
+        colorInputsByProperty.get(property).push({ input, onSync });
+      };
+      const syncColorInputs = (property, nextValue, sourceInput) => {
+        for (const entry of colorInputsByProperty.get(property) || []) {
+          if (entry.input !== sourceInput) entry.input.value = nextValue;
+          entry.onSync?.(nextValue);
+        }
+      };
       for (const [property, value] of layer.paints) {
         const editedValue = currentEdits.paints[property] || value;
         const paint = document.createElement("span");
@@ -565,16 +2060,18 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
           colorInput.type = "color";
           colorInput.id = `asset-layer-color-input-${asset.id}-${layer.number}-${property}`;
           colorInput.value = color;
-          colorInput.setAttribute("aria-label", `Layer ${layer.number} ${property} color`);
+          colorInput.setAttribute("aria-label", `Element ${layer.number} ${property} color`);
           colorInput.addEventListener("click", (event) => event.stopPropagation());
           colorInput.addEventListener("keydown", (event) => event.stopPropagation());
           colorInput.addEventListener("input", () => {
             const nextValue = colorInput.value.toUpperCase();
             updateAssetLayerEdits(asset.id, layer.number, { paints: { [property]: nextValue } });
             label.textContent = property;
+            syncColorInputs(property, nextValue, colorInput);
             onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
           });
           paint.appendChild(colorInput);
+          registerColorInput(property, colorInput);
           if (!firstColorInput) firstColorInput = colorInput;
         }
         paints.appendChild(paint);
@@ -584,7 +2081,7 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       opacityEditor.id = `asset-layer-opacity-editor-${asset.id}-${layer.number}`;
       opacityEditor.setAttribute("popover", "auto");
       opacityEditor.setAttribute("role", "dialog");
-      opacityEditor.setAttribute("aria-label", `Edit layer ${layer.number} opacity`);
+      opacityEditor.setAttribute("aria-label", `Edit element ${layer.number} opacity`);
       const opacityControl = document.createElement("label");
       opacityControl.className = "asset-layer-opacity-control";
       opacityControl.textContent = "Opacity";
@@ -605,14 +2102,16 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       opacityInput.step = "0.01";
       opacityInput.value = String(currentEdits.opacity ?? (layer.opacity === "" ? 1 : Number(layer.opacity)));
       opacitySlider.value = opacityInput.value;
-      opacityInput.setAttribute("aria-label", `Layer ${layer.number} opacity`);
+      opacityInput.setAttribute("aria-label", `Element ${layer.number} opacity`);
       opacityInput.addEventListener("click", (event) => event.stopPropagation());
       opacityInput.addEventListener("keydown", (event) => event.stopPropagation());
+      let attrOpacityInput = null;
       const setOpacity = (value) => {
         const nextOpacity = Number(value);
         if (!Number.isFinite(nextOpacity) || nextOpacity < 0 || nextOpacity > 1) return;
         opacityInput.value = String(nextOpacity);
         opacitySlider.value = String(nextOpacity);
+        if (attrOpacityInput) attrOpacityInput.value = String(nextOpacity);
         updateAssetLayerEdits(asset.id, layer.number, { opacity: nextOpacity });
         opacityValue.lastChild.textContent = String(nextOpacity);
         onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
@@ -631,7 +2130,7 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       const opacityValue = document.createElement("button");
       opacityValue.type = "button";
       opacityValue.className = "asset-layer-opacity-value";
-      opacityValue.setAttribute("aria-label", `Edit layer ${layer.number} opacity`);
+      opacityValue.setAttribute("aria-label", `Edit element ${layer.number} opacity`);
       opacityValue.setAttribute("aria-controls", opacityEditor.id);
       opacityValue.setAttribute("aria-expanded", "false");
       opacityValue.title = "Edit opacity";
@@ -647,12 +2146,12 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       const editorHeader = document.createElement("div");
       editorHeader.className = "asset-layer-edit-mode-header";
       const editorTitle = document.createElement("strong");
-      editorTitle.textContent = `Layer ${layer.number}`;
+      editorTitle.textContent = `Element ${layer.number}`;
       const closeButton = document.createElement("button");
       closeButton.type = "button";
       closeButton.className = "asset-layer-editor-close";
-      closeButton.setAttribute("aria-label", "Close layer editor");
-      closeButton.title = "Close layer editor";
+      closeButton.setAttribute("aria-label", "Close element editor");
+      closeButton.title = "Close element editor";
       closeButton.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
       editorHeader.append(editorTitle, closeButton);
       const moveControls = document.createElement("div");
@@ -661,12 +2160,12 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       xInput.type = "number";
       xInput.step = "1";
       xInput.value = String(currentEdits.offsetX || 0);
-      xInput.setAttribute("aria-label", `Layer ${layer.number} horizontal offset`);
+      xInput.setAttribute("aria-label", `Element ${layer.number} horizontal offset`);
       const yInput = document.createElement("input");
       yInput.type = "number";
       yInput.step = "1";
       yInput.value = String(currentEdits.offsetY || 0);
-      yInput.setAttribute("aria-label", `Layer ${layer.number} vertical offset`);
+      yInput.setAttribute("aria-label", `Element ${layer.number} vertical offset`);
       const setPosition = (x, y) => {
         if (!Number.isFinite(x) || !Number.isFinite(y)) return;
         xInput.value = String(x);
@@ -680,7 +2179,7 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `asset-layer-nudge-button asset-layer-nudge-button--${direction}`;
-        button.setAttribute("aria-label", `Move layer ${direction}`);
+        button.setAttribute("aria-label", `Move element ${direction}`);
         button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
         button.addEventListener("click", () => setPosition(Number(xInput.value) + xDelta, Number(yInput.value) + yDelta));
         return button;
@@ -708,21 +2207,70 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       );
       const attributes = document.createElement("dl");
       attributes.className = "asset-layer-attributes";
+      const currentAttrs = currentEdits.attrs || {};
       for (const [name, value] of layer.attributes) {
         const term = document.createElement("dt");
         term.textContent = name;
         const description = document.createElement("dd");
-        description.textContent = value;
+        const isColorAttr = name === "fill" || name === "stroke";
+        const normalizedColor = isColorAttr ? normalizeSvgColor(currentEdits.paints[name] ?? value) : "";
+        if (normalizedColor) {
+          const field = document.createElement("span");
+          field.className = "asset-layer-attr-color-field";
+          const colorInput = document.createElement("input");
+          colorInput.type = "color";
+          colorInput.className = "asset-layer-color-input";
+          colorInput.value = normalizedColor;
+          colorInput.setAttribute("aria-label", `Element ${layer.number} ${name} color`);
+          colorInput.addEventListener("click", (event) => event.stopPropagation());
+          colorInput.addEventListener("keydown", (event) => event.stopPropagation());
+          const valueText = document.createElement("code");
+          valueText.textContent = normalizedColor;
+          colorInput.addEventListener("input", () => {
+            const nextValue = colorInput.value.toUpperCase();
+            updateAssetLayerEdits(asset.id, layer.number, { paints: { [name]: nextValue } });
+            valueText.textContent = nextValue;
+            syncColorInputs(name, nextValue, colorInput);
+            onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+          });
+          registerColorInput(name, colorInput, (nextValue) => { valueText.textContent = nextValue; });
+          field.append(colorInput, valueText);
+          description.appendChild(field);
+        } else if (name === "opacity") {
+          const initialOpacity = currentEdits.opacity ?? (value === "" ? 1 : Number(value));
+          const { field, input } = createSteppedNumberField({
+            value: String(initialOpacity),
+            step: "0.01",
+            ariaLabel: `Element ${layer.number} opacity`,
+            onChange: (next) => setOpacity(Math.min(1, Math.max(0, next)))
+          });
+          attrOpacityInput = input;
+          description.appendChild(field);
+        } else if (value !== "" && Number.isFinite(Number(value))) {
+          const step = value.includes(".") ? "0.01" : "1";
+          const { field } = createSteppedNumberField({
+            value: currentAttrs[name] ?? value,
+            step,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          description.appendChild(field);
+        } else {
+          description.textContent = value;
+        }
         attributes.append(term, description);
       }
       layerEditor.append(editorHeader, moveControls, attributes);
       const editButton = document.createElement("button");
       editButton.type = "button";
       editButton.className = "asset-layer-edit-button";
-      editButton.setAttribute("aria-label", `Edit layer ${layer.number}`);
+      editButton.setAttribute("aria-label", `Edit element ${layer.number}`);
       editButton.setAttribute("aria-controls", layerEditor.id);
       editButton.setAttribute("aria-expanded", "false");
-      editButton.title = `Edit layer ${layer.number}`;
+      editButton.title = `Edit element ${layer.number}`;
       editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
       editButton.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -743,17 +2291,116 @@ function renderAssetLayers(root, editorPanel, asset, onHighlight, onEdit) {
       });
       details.appendChild(paints);
       details.append(opacityValue, editButton, opacityEditor);
+      item.appendChild(selectLabel);
       item.appendChild(number);
+      item.appendChild(reorder);
       item.appendChild(identity);
       item.appendChild(details);
-      root.appendChild(item);
       layerItems.set(layer.number, item);
+      layerCheckboxes.set(layer.number, selectCheckbox);
       if (onHighlight) layerButtons.set(layer.number, number);
+      return item;
+    }
+
+    function renderElementNodes(nodes, container) {
+      for (const node of [...nodes].reverse()) {
+        if (node.type === "group") {
+          const groupItem = document.createElement("li");
+          groupItem.className = "asset-element-group";
+          const header = document.createElement("div");
+          header.className = "asset-element-group-header";
+          const isCollapsed = collapsedGroupsForAsset(asset.id).has(node.element);
+          const collapseButton = document.createElement("button");
+          collapseButton.type = "button";
+          collapseButton.className = "asset-element-group-collapse-button";
+          collapseButton.setAttribute("aria-expanded", String(!isCollapsed));
+          collapseButton.title = isCollapsed ? "Expand group" : "Collapse group";
+          collapseButton.setAttribute("aria-label", isCollapsed ? "Expand group" : "Collapse group");
+          collapseButton.innerHTML = `<i data-lucide="${isCollapsed ? "chevron-right" : "chevron-down"}" aria-hidden="true"></i>`;
+          header.appendChild(collapseButton);
+          const tag = document.createElement("code");
+          tag.textContent = "<g>";
+          header.appendChild(tag);
+          const nameInput = document.createElement("input");
+          nameInput.type = "text";
+          nameInput.className = "asset-element-group-name";
+          nameInput.value = node.element.getAttribute("id") || "";
+          nameInput.placeholder = "Unnamed group";
+          nameInput.setAttribute("aria-label", "Group name");
+          nameInput.title = "Group name (stored as this <g>'s id attribute)";
+          nameInput.addEventListener("pointerdown", (event) => event.stopPropagation());
+          nameInput.addEventListener("keydown", (event) => event.stopPropagation());
+          nameInput.addEventListener("change", () => {
+            const nextId = sanitizeSvgId(nameInput.value);
+            if (nextId) node.element.setAttribute("id", nextId);
+            else node.element.removeAttribute("id");
+            nameInput.value = nextId;
+          });
+          header.appendChild(nameInput);
+          const addToGroupButton = document.createElement("button");
+          addToGroupButton.type = "button";
+          addToGroupButton.className = "asset-element-group-add-button";
+          addToGroupButton.title = "Add a new element inside this group";
+          addToGroupButton.setAttribute("aria-label", "Add element to this group");
+          addToGroupButton.innerHTML = '<i data-lucide="plus" aria-hidden="true"></i>';
+          addToGroupButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            collapsedGroupsForAsset(asset.id).delete(node.element);
+            const shape = actionsBar.querySelector(".asset-layer-add-button")?.dataset.shape || "rect";
+            addElement(shape, node.element);
+          });
+          header.appendChild(addToGroupButton);
+          const nestedList = document.createElement("ol");
+          nestedList.className = "asset-element-group-children";
+          nestedList.hidden = isCollapsed;
+          groupItem.classList.toggle("is-collapsed", isCollapsed);
+          collapseButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const collapsedSet = collapsedGroupsForAsset(asset.id);
+            const nowCollapsed = !collapsedSet.has(node.element);
+            if (nowCollapsed) collapsedSet.add(node.element);
+            else collapsedSet.delete(node.element);
+            nestedList.hidden = nowCollapsed;
+            groupItem.classList.toggle("is-collapsed", nowCollapsed);
+            collapseButton.setAttribute("aria-expanded", String(!nowCollapsed));
+            collapseButton.title = nowCollapsed ? "Expand group" : "Collapse group";
+            collapseButton.setAttribute("aria-label", nowCollapsed ? "Expand group" : "Collapse group");
+            collapseButton.innerHTML = `<i data-lucide="${nowCollapsed ? "chevron-right" : "chevron-down"}" aria-hidden="true"></i>`;
+            if (typeof lucide !== "undefined") lucide.createIcons();
+          });
+          renderElementNodes(node.children, nestedList);
+          groupItem.append(header, nestedList);
+          container.appendChild(groupItem);
+
+          const pendingFocus = assetPendingGroupFocus.get(asset.id);
+          if (pendingFocus) {
+            const groupNumbers = collectElementNumbers(node);
+            if (groupNumbers.length === pendingFocus.size && groupNumbers.every((number) => pendingFocus.has(number))) {
+              assetPendingGroupFocus.delete(asset.id);
+              setTimeout(() => {
+                nameInput.focus();
+                nameInput.select();
+              }, 0);
+            }
+          }
+        } else {
+          const layer = layerByNumber.get(node.number);
+          if (layer) container.appendChild(renderElementRow(layer));
+        }
+      }
+    }
+    renderElementNodes(buildElementTree(data.svg), root);
+    syncSelection();
+    if (selectedLayerNumber !== null) {
+      syncHighlight();
+      layerItems.get(selectedLayerNumber)?.scrollIntoView({ block: "nearest" });
     }
     if (typeof lucide !== "undefined") lucide.createIcons();
   }).catch(() => {
-    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Layer information unavailable";
+    if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Element information unavailable";
   });
+
+  return controller;
 }
 
 function showToast(message) {
@@ -1086,6 +2733,13 @@ function renderAssetDetail(assetId) {
   const overview = document.getElementById("asset-detail-overview");
   const primaryPreview = document.getElementById("asset-primary-preview");
   const primarySvg = document.getElementById("asset-primary-svg");
+  const primaryTooltip = document.getElementById("asset-primary-tooltip");
+  const primaryHandles = document.getElementById("asset-primary-handles");
+  const primaryGuides = document.getElementById("asset-primary-guides");
+  const primaryCanvas = document.getElementById("asset-primary-canvas");
+  const primarySizeCaption = document.getElementById("asset-primary-size-caption");
+  const previewSizeSelect = document.getElementById("asset-preview-size-select");
+  const previewSizeListToggle = document.getElementById("asset-preview-size-list-toggle");
   const colorsSection = document.getElementById("asset-detail-colors-section");
   const colorsList = document.getElementById("asset-detail-colors");
   const projectColorsList = document.getElementById("asset-project-colors");
@@ -1098,9 +2752,9 @@ function renderAssetDetail(assetId) {
   const layersSection = document.getElementById("asset-detail-layers-section");
   const layersList = document.getElementById("asset-detail-layers");
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
-  const sizesSection = document.getElementById("asset-sizes-section");
+  const layerActions = document.getElementById("asset-layer-actions");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !sizesSection || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -1111,10 +2765,16 @@ function renderAssetDetail(assetId) {
   layersList.textContent = "";
   layerEditorPanel.hidden = true;
   layerEditorPanel.replaceChildren();
-  sizesSection.open = false;
+  layerActions.hidden = true;
+  layerActions.replaceChildren();
+  primaryCanvas.hidden = false;
+  sizeGrid.hidden = true;
+  previewSizeListToggle.setAttribute("aria-pressed", "false");
   const asset = assetById.get(assetId);
 
   if (!asset) {
+    activePrimaryLayerInteractionCleanup?.();
+    activePrimaryLayerInteractionCleanup = null;
     title.textContent = "Asset not found";
     meta.textContent = `No logo or glyph exists for id: ${assetId}`;
     deepLink.href = window.location.href;
@@ -1123,7 +2783,7 @@ function renderAssetDetail(assetId) {
     projectLink.title = "Back to all assets";
     overview.hidden = true;
     layersSection.hidden = true;
-    sizesSection.hidden = true;
+    layerActions.hidden = true;
     return;
   }
 
@@ -1137,8 +2797,35 @@ function renderAssetDetail(assetId) {
   projectLink.title = `Back to ${projectName}`;
   overview.hidden = false;
   layersSection.hidden = false;
-  sizesSection.hidden = false;
-  renderAssetPrimarySvg(primarySvg, asset);
+  const previewSizes = uniqueSortedSizes(asset);
+  const defaultPreviewSize = "fit";
+  const fitOption = document.createElement("option");
+  fitOption.value = "fit";
+  fitOption.textContent = "Fit width";
+  fitOption.selected = true;
+  previewSizeSelect.replaceChildren(fitOption, ...previewSizes.map((size) => {
+    const option = document.createElement("option");
+    option.value = String(size);
+    option.textContent = `${size}px`;
+    return option;
+  }));
+  primarySizeCaption.textContent = previewSizeLabel(defaultPreviewSize);
+  renderAssetPrimarySvg(primarySvg, asset, defaultPreviewSize);
+  activePrimaryLayerInteractionCleanup?.();
+  const primaryInteractionState = { updateTooltip: () => {} };
+  const layersController = renderAssetLayers(
+    layersList,
+    layerEditorPanel,
+    layerActions,
+    asset,
+    (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
+    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
+    (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
+    (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
+  );
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController);
+  primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
+  activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
     const regions = setPrimarySvgColorHighlight(primarySvg, color, highlighted);
     highlightStatus.textContent = highlighted && regions.length
@@ -1164,17 +2851,37 @@ function renderAssetDetail(assetId) {
   };
   customColorInput.onchange = addCustomColor;
   renderAssetDiagnostics(diagnostics, asset);
-  renderAssetLayers(
-    layersList,
-    layerEditorPanel,
-    asset,
-    (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
-    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id)
-  );
 
-  for (const size of uniqueSortedSizes(asset).filter((value) => value !== 512)) {
-    const card = document.createElement("article");
+  const showCanvasSize = (size) => {
+    previewSizeSelect.value = String(size);
+    primarySizeCaption.textContent = previewSizeLabel(size);
+    setAssetPrimarySvgSize(primarySvg, asset, size);
+    primaryCanvas.hidden = false;
+    sizeGrid.hidden = true;
+    previewSizeListToggle.setAttribute("aria-pressed", "false");
+    previewSizeListToggle.innerHTML = '<i data-lucide="grid-2x2" aria-hidden="true"></i>Compare sizes';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  previewSizeSelect.onchange = () => showCanvasSize(
+    previewSizeSelect.value === "fit" ? "fit" : Number(previewSizeSelect.value)
+  );
+  previewSizeListToggle.onclick = () => {
+    const showingList = !sizeGrid.hidden;
+    primaryCanvas.hidden = !showingList;
+    sizeGrid.hidden = showingList;
+    previewSizeListToggle.setAttribute("aria-pressed", String(!showingList));
+    previewSizeListToggle.innerHTML = showingList
+      ? '<i data-lucide="grid-2x2" aria-hidden="true"></i>Compare sizes'
+      : '<i data-lucide="square" aria-hidden="true"></i>Back to canvas';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  };
+
+  for (const size of previewSizes) {
+    const card = document.createElement("button");
+    card.type = "button";
     card.className = "size-preview-card";
+    card.setAttribute("aria-label", `Show ${asset.label} at ${size}px on the canvas`);
 
     const displaySize = Math.min(size, 220);
     const frameSize = Math.max(displaySize + 32, 120);
@@ -1194,6 +2901,7 @@ function renderAssetDetail(assetId) {
     frame.appendChild(img);
     card.appendChild(frame);
     card.appendChild(caption);
+    card.addEventListener("click", () => showCanvasSize(size));
     sizeGrid.appendChild(card);
   }
 }
@@ -2060,6 +3768,51 @@ function wireNewProjectModal() {
   });
 }
 
+function wireAssetDetailSidebars() {
+  const sidebars = [
+    {
+      sidebar: document.getElementById("asset-detail-left-sidebar"),
+      toggle: document.getElementById("asset-detail-left-sidebar-toggle"),
+      content: document.getElementById("asset-detail-left-sidebar-content"),
+      storageKey: "wm-assets-left-sidebar-collapsed",
+      collapsedIcon: "panel-left-open",
+      expandedIcon: "panel-left-close",
+      label: "asset analysis"
+    },
+    {
+      sidebar: document.getElementById("asset-detail-right-sidebar"),
+      toggle: document.getElementById("asset-detail-right-sidebar-toggle"),
+      content: document.getElementById("asset-detail-right-sidebar-content"),
+      storageKey: "wm-assets-right-sidebar-collapsed",
+      collapsedIcon: "panel-right-open",
+      expandedIcon: "panel-right-close",
+      label: "element editor"
+    }
+  ];
+
+  for (const { sidebar, toggle, content, storageKey, collapsedIcon, expandedIcon, label } of sidebars) {
+    if (!sidebar || !toggle || !content) continue;
+    const setCollapsed = (collapsed) => {
+      sidebar.classList.toggle("is-collapsed", collapsed);
+      content.inert = collapsed;
+      toggle.setAttribute("aria-expanded", String(!collapsed));
+      toggle.title = `${collapsed ? "Expand" : "Collapse"} ${label}`;
+      toggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${label}`);
+      const nextIcon = document.createElement("i");
+      nextIcon.dataset.lucide = collapsed ? collapsedIcon : expandedIcon;
+      nextIcon.setAttribute("aria-hidden", "true");
+      toggle.querySelector("[data-lucide], svg")?.replaceWith(nextIcon);
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    };
+    setCollapsed(localStorage.getItem(storageKey) === "true");
+    toggle.addEventListener("click", () => {
+      const collapsed = !sidebar.classList.contains("is-collapsed");
+      localStorage.setItem(storageKey, String(collapsed));
+      setCollapsed(collapsed);
+    });
+  }
+}
+
 async function init() {
   applyThemeFromQuery();
   wireThemeToggle();
@@ -2071,6 +3824,7 @@ async function init() {
   wireProjectRename();
   wireProjectPromptCarousel();
   wireSourceReferenceCopy();
+  wireAssetDetailSidebars();
 
   const [assetManifest, specs] = await Promise.all([
     loadJson("../manifests/assets.json"),

@@ -87,68 +87,92 @@
             <p id="asset-detail-meta" class="asset-detail-meta"></p>
           </header>
           <div id="asset-detail-overview" class="asset-detail-overview">
-            <div id="asset-primary-preview" class="asset-primary-preview">
-              <div id="asset-primary-svg" class="asset-primary-svg" role="img" aria-label="Asset preview"></div>
-              <p class="size-preview-caption">512px</p>
-            </div>
-            <div class="asset-detail-insights">
-              <details id="asset-detail-colors-section" class="asset-detail-colors asset-detail-disclosure project-collapsible-card" open>
-                <summary>
-                  <h4 id="asset-detail-colors-heading">Colors</h4>
-                  <i data-lucide="chevron-down" aria-hidden="true"></i>
-                </summary>
-                <div class="asset-detail-disclosure-body" aria-labelledby="asset-detail-colors-heading">
-                  <div class="asset-color-group">
-                    <span class="asset-color-group-label">Asset palette</span>
-                    <div class="asset-palette-row">
-                      <div id="asset-detail-colors" class="asset-colors-list" aria-live="polite"></div>
-                      <div id="asset-custom-colors" class="asset-colors-list"></div>
-                      <form id="asset-custom-color-form" class="asset-custom-color-form">
-                        <input id="asset-custom-color-input" class="asset-custom-color-picker" type="color" value="#257375" aria-label="Choose asset palette color" />
-                        <button type="button" id="asset-custom-color-add" class="asset-color-add-button" aria-label="Add asset palette color" title="Add asset palette color">
-                          <i data-lucide="plus" aria-hidden="true"></i>
-                        </button>
-                      </form>
+            <aside id="asset-detail-left-sidebar" class="asset-detail-sidebar asset-detail-sidebar--left" aria-label="Asset analysis">
+              <div class="asset-detail-sidebar-header">
+                <span>Asset analysis</span>
+                <button id="asset-detail-left-sidebar-toggle" class="asset-detail-sidebar-toggle" type="button" aria-controls="asset-detail-left-sidebar-content" aria-expanded="true" aria-label="Collapse asset analysis" title="Collapse asset analysis">
+                  <i data-lucide="panel-left-close" aria-hidden="true"></i>
+                </button>
+              </div>
+              <div id="asset-detail-left-sidebar-content" class="asset-detail-sidebar-content">
+                <details id="asset-detail-colors-section" class="asset-detail-colors asset-detail-disclosure project-collapsible-card" open>
+                  <summary>
+                    <h4 id="asset-detail-colors-heading">Colors</h4>
+                    <i data-lucide="chevron-down" aria-hidden="true"></i>
+                  </summary>
+                  <div class="asset-detail-disclosure-body" aria-labelledby="asset-detail-colors-heading">
+                    <div class="asset-color-group">
+                      <span class="asset-color-group-label">Asset palette</span>
+                      <div class="asset-palette-row">
+                        <div id="asset-detail-colors" class="asset-colors-list" aria-live="polite"></div>
+                        <div id="asset-custom-colors" class="asset-colors-list"></div>
+                        <form id="asset-custom-color-form" class="asset-custom-color-form">
+                          <input id="asset-custom-color-input" class="asset-custom-color-picker" type="color" value="#257375" aria-label="Choose asset palette color" />
+                          <button type="button" id="asset-custom-color-add" class="asset-color-add-button" aria-label="Add asset palette color" title="Add asset palette color">
+                            <i data-lucide="plus" aria-hidden="true"></i>
+                          </button>
+                        </form>
+                      </div>
                     </div>
+                    <div class="asset-color-group">
+                      <span class="asset-color-group-label">Project palette</span>
+                      <div id="asset-project-colors" class="asset-colors-list"></div>
+                    </div>
+                    <p id="asset-color-highlight-status" class="asset-color-highlight-status" aria-live="polite"></p>
                   </div>
-                  <div class="asset-color-group">
-                    <span class="asset-color-group-label">Project palette</span>
-                    <div id="asset-project-colors" class="asset-colors-list"></div>
+                </details>
+                <details class="asset-detail-diagnostics asset-detail-disclosure project-collapsible-card" open>
+                  <summary>
+                    <h4 id="asset-detail-diagnostics-heading">SVG Diagnostics</h4>
+                    <i data-lucide="chevron-down" aria-hidden="true"></i>
+                  </summary>
+                  <div class="asset-detail-disclosure-body" aria-labelledby="asset-detail-diagnostics-heading">
+                    <dl id="asset-detail-diagnostics"></dl>
                   </div>
-                  <p id="asset-color-highlight-status" class="asset-color-highlight-status" aria-live="polite"></p>
-                </div>
-              </details>
+                </details>
+              </div>
+            </aside>
+            <div id="asset-primary-preview" class="asset-primary-preview">
+              <div class="asset-preview-toolbar">
+                <label for="asset-preview-size-select">Canvas size</label>
+                <select id="asset-preview-size-select" class="wm-input" aria-label="Canvas preview size"></select>
+                <button id="asset-preview-size-list-toggle" type="button" class="btn btn-sm" aria-pressed="false">
+                  <i data-lucide="grid-2x2" aria-hidden="true"></i>
+                  Compare sizes
+                </button>
+              </div>
+              <div id="asset-primary-canvas" class="asset-primary-canvas">
+                <div id="asset-primary-svg" class="asset-primary-svg" role="img" aria-label="Asset preview"></div>
+                <div id="asset-primary-guides" class="asset-primary-guides" hidden></div>
+                <div id="asset-primary-tooltip" class="asset-primary-tooltip" role="status" hidden></div>
+                <div id="asset-primary-handles" class="asset-primary-handles" hidden></div>
+                <p id="asset-primary-size-caption" class="size-preview-caption">512px</p>
+              </div>
+              <div id="asset-size-grid" class="asset-size-grid" hidden aria-label="All preview sizes"></div>
+            </div>
+            <aside id="asset-detail-right-sidebar" class="asset-detail-sidebar asset-detail-sidebar--right" aria-label="Element editor">
+              <div class="asset-detail-sidebar-header">
+                <span>Element editor</span>
+                <button id="asset-detail-right-sidebar-toggle" class="asset-detail-sidebar-toggle" type="button" aria-controls="asset-detail-right-sidebar-content" aria-expanded="true" aria-label="Collapse element editor" title="Collapse element editor">
+                  <i data-lucide="panel-right-close" aria-hidden="true"></i>
+                </button>
+              </div>
+              <div id="asset-detail-right-sidebar-content" class="asset-detail-sidebar-content">
               <details id="asset-detail-layers-section" class="asset-detail-layers asset-detail-disclosure project-collapsible-card" open>
                 <summary>
-                  <h4 id="asset-detail-layers-heading">Layers</h4>
+                  <h4 id="asset-detail-layers-heading">Elements</h4>
                   <span>Top to bottom</span>
                   <i data-lucide="chevron-down" aria-hidden="true"></i>
                 </summary>
                 <div class="asset-detail-disclosure-body" aria-labelledby="asset-detail-layers-heading">
+                  <div id="asset-layer-actions" class="asset-layer-actions" hidden></div>
                   <ol id="asset-detail-layers" reversed aria-live="polite"></ol>
                   <div id="asset-layer-editor-panel" class="asset-layer-editor-panel" hidden></div>
                 </div>
               </details>
-              <details class="asset-detail-diagnostics asset-detail-disclosure project-collapsible-card" open>
-                <summary>
-                  <h4 id="asset-detail-diagnostics-heading">SVG Diagnostics</h4>
-                  <i data-lucide="chevron-down" aria-hidden="true"></i>
-                </summary>
-                <div class="asset-detail-disclosure-body" aria-labelledby="asset-detail-diagnostics-heading">
-                  <dl id="asset-detail-diagnostics"></dl>
-                </div>
-              </details>
-            </div>
+              </div>
+            </aside>
           </div>
-          <details id="asset-sizes-section" class="asset-sizes-section project-collapsible-card">
-            <summary>
-              <h4 id="asset-sizes-heading">Size Previews</h4>
-              <i data-lucide="chevron-down" aria-hidden="true"></i>
-            </summary>
-            <div class="project-collapsible-body" aria-labelledby="asset-sizes-heading">
-              <div id="asset-size-grid" class="asset-size-grid"></div>
-            </div>
-          </details>
         </section>
 
         <section id="source-detail" class="source-detail-page is-hidden">
