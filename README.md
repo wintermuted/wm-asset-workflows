@@ -39,7 +39,7 @@ npx playwright install chromium   # one-time browser install
 
 ```bash
 npm run build:specs     # Parse specs/*.md Mermaid blocks → preview/spec-index.json
-npm run preview         # Start local preview server at http://localhost:4178/preview/index.html
+npm run preview         # Install deps if needed, build the spec index, then serve the preview
 npm run generate:png    # Generate deterministic PNG assets via Pillow
 npm run capture         # Capture light/dark screenshots using Playwright
 npm run workflow:logo   # Run build:specs + generate:png + capture in sequence
@@ -78,7 +78,7 @@ The agent will interview you for the design intent, generate the SVG, register i
    }
    ```
 
-3. Run `npm run build:specs` (if specs also changed) then `npm run preview`.
+3. Run `npm run preview`.
 4. Inspect the logo tile in the browser at `http://localhost:4178/preview/index.html`.
 5. Run `npm run generate:png` to produce `outputs/png/logo-sheet.png`.
 6. Run `npm run capture` to produce `outputs/screenshots/preview-light.png` and `preview-dark.png`.
