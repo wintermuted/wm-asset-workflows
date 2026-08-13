@@ -74,6 +74,7 @@ jobs:
           cp wm-asset-workflows/node_modules/@wintermuted/ui-theme/index.css _site/preview/ui-theme/
           cp -R wm-asset-workflows/node_modules/@wintermuted/ui-theme/styles _site/preview/ui-theme/
           touch _site/.nojekyll
+          printf '%s\n' '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Redirecting…</title><meta http-equiv="refresh" content="0; url=./preview/"><link rel="canonical" href="./preview/"></head><body><p>Redirecting to <a href="./preview/">the preview</a>…</p></body></html>' > _site/index.html
 
       - name: Configure git identity
         working-directory: wm-asset-workflows
@@ -162,7 +163,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/previews/pr-${{ github.event.pull_request.number }}/preview/"
           else
-            url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/preview/"
+            url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           fi
           echo "Health check URL: $url"
           for i in 1 2 3 4 5; do
