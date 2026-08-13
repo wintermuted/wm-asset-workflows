@@ -1,6 +1,0 @@
-/* Shared Wintermuted UI theme.
-   Derived from the CV design language and generalized for app reuse. */
-
-@import url("./styles/tokens.css");
-@import url("./styles/base.css");
-@import url("./styles/components.css");
