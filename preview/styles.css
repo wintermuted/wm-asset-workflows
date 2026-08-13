@@ -1087,8 +1087,8 @@
 
 .asset-layer-actions {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   padding: 0.4rem 0.55rem;
@@ -1105,6 +1105,7 @@
   display: flex;
   align-items: center;
   position: relative;
+  align-self: flex-start;
 }
 
 .asset-layer-add-button {
@@ -1137,11 +1138,6 @@
 .asset-layer-add-button:focus-visible {
   outline: 2px solid var(--wm-color-accent);
   outline-offset: 2px;
-}
-
-.asset-layer-add-button svg {
-  width: 0.85rem;
-  height: 0.85rem;
 }
 
 .asset-layer-shape-menu {
@@ -1232,13 +1228,12 @@
 }
 
 .asset-layer-combine-group {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  flex: 1;
-  min-width: 0;
   gap: 0.5rem;
-  padding-left: 0.5rem;
-  border-left: 1px solid var(--wm-color-border);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--wm-color-border);
 }
 
 .asset-layer-combine-group[hidden] {
@@ -1246,11 +1241,12 @@
 }
 
 .asset-layer-actions-status {
-  flex: 1;
+  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   color: var(--wm-color-text-muted);
   font-size: 0.75rem;
+  line-height: 1.35;
 }
 
 .asset-layer-actions-clear {
@@ -1288,6 +1284,11 @@
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.asset-layer-combine-button:not(:disabled) {
+  width: 100%;
+  justify-content: center;
 }
 
 .asset-layer-combine-button svg {

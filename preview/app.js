@@ -1853,9 +1853,11 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       }
       combineButton.disabled = selection.size < 2;
       clearButton.hidden = selection.size === 0;
-      combineStatus.textContent = selection.size < 2
-        ? `Select 2 or more elements to combine.${selection.size ? " 1 selected." : ""}`
-        : `${selection.size} elements selected.`;
+      combineStatus.textContent = selection.size === 0
+        ? "Select 2 elements to combine."
+        : selection.size === 1
+          ? "Select one more element to combine."
+          : `${selection.size} selected. Ready to combine.`;
     }
     const syncHighlight = () => {
       const highlightedLayerNumber = hoveredLayerNumber ?? focusedLayerNumber ?? selectedLayerNumber;
