@@ -73,6 +73,34 @@ The manifest is the central catalog consumed by:
 }
 ```
 
+### Steering Image Palettes
+
+Uploaded steering images store their analyzed dominant colors on the source record. Favorite colors are shared at the project level:
+
+```json
+{
+  "agentSteer": {
+    "sources": [
+      {
+        "kind": "image",
+        "src": "assets/svg/project/grounding/reference.png",
+        "palette": [
+          { "hex": "#257375", "percentage": 12.11 }
+        ]
+      }
+    ],
+    "favoriteColors": ["#257375", "#123456"],
+    "customColors": ["#123456"]
+  }
+}
+```
+
+- `palette` contains up to ten colors ordered by pixel frequency.
+- `palette[].hex` is an uppercase six-digit hex color.
+- `palette[].percentage` is the approximate percentage of analyzed opaque pixels.
+- `favoriteColors` contains the project-level colors selected in the preview UI.
+- `customColors` contains validated colors added with the project color picker.
+
 ---
 
 ## Mermaid Diagram Specs (`specs/*.md`)

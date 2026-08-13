@@ -1,18 +1,21 @@
 {
-  "name": "wm-asset-workflows",
+  "name": "agentic-icon-builder",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "SVG-first logo and glyph workflows with markdown diagrams, preview, and screenshot capture.",
+  "description": "Agentic Icon Builder for SVG-first logo and glyph workflows, previews, and exports.",
   "scripts": {
     "preview": "node scripts/node/serve-preview.mjs",
     "build:specs": "node scripts/node/build-spec-index.mjs",
     "generate:png": "python3 scripts/python/generate_images.py",
     "capture": "node scripts/node/capture-preview.mjs",
-    "workflow:logo": "npm run build:specs && npm run generate:png && npm run capture"
+    "workflow:logo": "npm run build:specs && npm run generate:png && npm run capture",
+    "ui-theme:link-local": "cd ../wintermuted-ui-theme && npm link && cd - && npm link @wintermuted/ui-theme",
+    "ui-theme:unlink-local": "npm unlink --no-save @wintermuted/ui-theme && npm install"
   },
   "dependencies": {
-    "@wintermuted/ui-theme": "^0.21.4"
+    "@wintermuted/ui-theme": "^0.21.4",
+    "lucide": "^0.577.0"
   },
   "devDependencies": {
     "playwright": "^1.54.0"
