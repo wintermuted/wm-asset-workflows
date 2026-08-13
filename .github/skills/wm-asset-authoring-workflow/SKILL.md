@@ -26,7 +26,7 @@ This repo follows a Copilot Chat-driven loop:
 | Command | Purpose |
 |---------|---------|
 | `npm run build:specs` | Parse `specs/*.md` Mermaid blocks → `preview/spec-index.json` |
-| `npm run preview` | Start preview server at `http://localhost:4178/preview/index.html` |
+| `npm run preview` | Ensure deps + build specs, then serve at `http://localhost:4178/preview/index.html` |
 | `npm run generate:png` | Run Pillow script → `outputs/png/logo-sheet.png` |
 | `npm run capture` | Playwright headless capture → `outputs/screenshots/preview-light.png` + `preview-dark.png` |
 | `npm run workflow:logo` | Run `build:specs + generate:png + capture` in sequence |
@@ -37,6 +37,8 @@ This repo follows a Copilot Chat-driven loop:
 npm run preview
 # → http://localhost:4178/preview/index.html
 ```
+
+This installs missing dependencies and rebuilds the spec index first. The preview page loads `@wintermuted/ui-theme` directly from `node_modules`, so an unthemed page almost always means dependencies were never installed.
 
 Custom port:
 

@@ -20,11 +20,25 @@ pip install -r requirements.txt  # Install Python deps (first time)
 npx playwright install chromium  # Install browser for capture (first time)
 
 npm run build:specs            # Parse specs/ markdown -> preview/spec-index.json
-npm run preview                # Start preview server at http://localhost:4178/preview/index.html
+npm run preview                # Ensure deps + build specs, then serve at http://localhost:4178/preview/index.html
 npm run generate:png           # Generate PNG assets from Pillow scripts
 npm run capture                # Headless-capture preview-light.png and preview-dark.png
 npm run workflow:logo          # Run build:specs + generate:png + capture in sequence
 ```
+
+## Git Remote Operations
+
+This repo is owned by the **`wintermuted`** GitHub account. Copilot sessions typically run as a different account (e.g. `jnyeholt_microsoft`), which has **read-only** access — pushes and PR creation fail with `403`.
+
+The session injects a `GH_TOKEN` environment variable that **overrides** gh's stored accounts, so `gh auth switch` alone does not fix this. Clear the env tokens and use the `wintermuted` token explicitly:
+
+```bash
+export GH_TOKEN=$(gh auth token --user wintermuted --hostname github.com)
+export GITHUB_TOKEN="$GH_TOKEN"
+gh pr create --repo wintermuted/wm-asset-workflows ...
+```
+
+If `gh auth status` does not list a `wintermuted` account, run `gh auth login --hostname github.com` as that account first — do not work around it by granting the session account write access.
 
 ## Directory Layout
 
