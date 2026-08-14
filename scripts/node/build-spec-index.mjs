@@ -1,8 +1,6 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
-const SPEC_DIR = join(process.cwd(), "specs");
-const OUTPUT_FILE = join(process.cwd(), "preview/spec-index.json");
+import { paths } from "./workflow-paths.mjs";
 
 function extractTitle(content, fallback) {
   const match = content.match(/^#\s+(.+)$/m);
@@ -20,13 +18,13 @@ function extractMermaidBlocks(content) {
 }
 
 async function build() {
-  const entries = await readdir(SPEC_DIR, { withFileTypes: true });
+  const entries = await readdir(paths.specs, { withFileTypes: true });
   const diagrams = [];
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 
-    const filePath = join(SPEC_DIR, entry.name);
+    const filePath = join(paths.specs, entry.name);
     const content = await readFile(filePath, "utf8");
     const title = extractTitle(content, entry.name.replace(/\.md$/, ""));
     const blocks = extractMermaidBlocks(content);
@@ -41,7 +39,7 @@ async function build() {
     });
   }
 
-  await writeFile(OUTPUT_FILE, `${JSON.stringify({ diagrams }, null, 2)}\n`, "utf8");
+  await writeFile(paths.specIndex, `${JSON.stringify({ diagrams }, null, 2)}\n`, "utf8");
   console.log(`Wrote ${diagrams.length} diagrams to preview/spec-index.json`);
 }
 

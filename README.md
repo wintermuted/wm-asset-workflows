@@ -17,7 +17,9 @@ assets/svg/          SVG source files — source of truth, never overwritten by 
 specs/               Markdown specs with Mermaid blocks for the diagram lane
 manifests/assets.json  Asset catalog consumed by preview and generator scripts
 preview/             Static browser preview app (HTML/CSS/JS, uses @wintermuted/ui-theme)
+preview/modules/     Browser application modules for shell behavior and shared UI helpers
 scripts/node/        Orchestration scripts: serve-preview, build-spec-index, capture-preview
+scripts/node/workflow-paths.mjs  Shared workflow filesystem paths
 scripts/python/      Deterministic image generators (Pillow)
 outputs/png/         Generated PNG assets (git-ignored except .gitkeep)
 outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
@@ -135,3 +137,13 @@ lsof -ti :4178 | xargs kill -9
 - Mermaid blocks are for flow/architecture diagrams, not brand mark construction.
 - `outputs/` is treated as generated content — do not commit generated PNGs unless intentional.
 - `preview/spec-index.json` is also git-ignored (it is rebuilt from `specs/` on demand).
+
+## Modularization Direction
+
+The repository is being modularized in place before adopting a monorepo layout. Runtime entrypoints and public commands remain stable while responsibilities move behind explicit module boundaries:
+
+- `preview/app.js` remains the browser entrypoint and assembles modules from `preview/modules/`.
+- `scripts/node/serve-preview.mjs` remains the preview-server entrypoint while server responsibilities are extracted into focused modules.
+- `scripts/node/workflow-paths.mjs` centralizes filesystem locations shared by Node workflow commands.
+
+Future work can move these boundaries into `apps/preview`, `packages/asset-model`, and `packages/workflow-*` without changing the asset manifest or authoring workflow.

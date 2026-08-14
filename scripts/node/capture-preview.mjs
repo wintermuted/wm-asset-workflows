@@ -3,10 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { chromium } from "playwright";
+import { paths, root } from "./workflow-paths.mjs";
 
 const port = 4178;
-const root = process.cwd();
-const outDir = join(root, "outputs/screenshots");
+const outDir = paths.screenshots;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

@@ -47,7 +47,9 @@ assets/svg/          SVG source files — source of truth, never overwritten by 
 specs/               Markdown specs with Mermaid blocks for diagram lane
 manifests/assets.json  Asset catalog consumed by preview and generator scripts
 preview/             Static browser preview app (HTML/CSS/JS)
+preview/modules/     Browser modules assembled by preview/app.js
 scripts/node/        Orchestration scripts: serve-preview, build-spec-index, capture-preview
+scripts/node/workflow-paths.mjs  Shared workflow filesystem paths
 scripts/python/      Deterministic image generators
 outputs/png/         Generated PNG assets (git-ignored except .gitkeep)
 outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
