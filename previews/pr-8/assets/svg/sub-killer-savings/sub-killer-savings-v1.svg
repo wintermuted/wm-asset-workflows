@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Sub Killer Savings V1</title>
+  <desc id="desc">Balanced mark with dollar sign inside canceled recurring cycle on green background.</desc>
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#16a34a"/>
+
+  <circle cx="64" cy="52" r="26" fill="#14532d"/>
+  <path d="M48 50a16 16 0 0 1 26-9" fill="none" stroke="#bbf7d0" stroke-width="6" stroke-linecap="round"/>
+  <path d="M76 40l-8 1 4-6" fill="none" stroke="#bbf7d0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M80 56a16 16 0 0 1-26 9" fill="none" stroke="#bbf7d0" stroke-width="6" stroke-linecap="round"/>
+  <path d="M52 66l8-1-4 6" fill="none" stroke="#bbf7d0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M46 64l36-23" fill="none" stroke="#f97316" stroke-width="6" stroke-linecap="round"/>
+
+  <path d="M64 44v16" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M69 47c-2-2-8-2-10 1-1 2 1 4 4 5 4 1 7 3 5 5-2 2-7 2-10 0" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+
+  <ellipse cx="64" cy="95" rx="25" ry="7" fill="#14532d"/>
+  <rect x="39" y="85" width="50" height="10" fill="#15803d"/>
+  <ellipse cx="64" cy="85" rx="25" ry="7" fill="#22c55e"/>
+</svg>

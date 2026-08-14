@@ -1,0 +1,29 @@
+/* File upload: drag-and-drop target zone. */
+
+.file-upload,
+.wm-file-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px dashed var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-xs, 4px);
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  color: var(--wm-color-text-muted);
+  font-size: 0.9rem;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.file-upload:hover,
+.wm-file-upload:hover {
+  border-color: var(--wm-color-accent);
+  background: color-mix(in srgb, var(--wm-color-accent-soft) 35%, transparent);
+}
+
+.file-upload input[type="file"],
+.wm-file-upload input[type="file"] {
+  display: none;
+}
