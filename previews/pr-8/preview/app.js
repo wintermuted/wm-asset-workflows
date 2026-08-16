@@ -19,6 +19,11 @@ let activeProjectPromptIndex = 0;
 const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
+const assetViewBoxEdits = new Map();
+const assetAccessibilityEdits = new Map();
+const assetSourceSizeEdits = new Map();
+const assetGroupEdits = new Map();
+const assetModified = new Set();
 const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
 // contains), so the panel can auto-focus that group's name field once rendered.
@@ -38,12 +43,43 @@ let activePrimaryLayerInteractionCleanup = null;
 const NEW_ELEMENT_SHAPES = [
   { value: "rect", label: "Rectangle", icon: "square" },
   { value: "circle", label: "Circle", icon: "circle" },
-  { value: "line", label: "Line", icon: "minus" }
+  { value: "ellipse", label: "Ellipse", icon: "circle" },
+  { value: "line", label: "Line", icon: "minus" },
+  { value: "polyline", label: "Polyline", icon: "spline" },
+  { value: "polygon", label: "Polygon", icon: "pentagon" },
+  { value: "path", label: "Path", icon: "pen-line" }
 ];
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
 const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
+const SVG_ELEMENT_GEOMETRY_ATTRIBUTES = new Map([
+  ["rect", ["x", "y", "width", "height", "rx", "ry"]],
+  ["circle", ["cx", "cy", "r"]],
+  ["ellipse", ["cx", "cy", "rx", "ry"]],
+  ["line", ["x1", "y1", "x2", "y2"]],
+  ["polyline", ["points"]],
+  ["polygon", ["points"]],
+  ["path", ["d"]]
+]);
+
+function enumerateElementAttributes(elementName, attributes) {
+  const entries = [...attributes];
+  const existing = new Set(entries.map(([name]) => name));
+  for (const name of SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(elementName) || []) {
+    if (!existing.has(name)) entries.push([name, ""]);
+  }
+  if (!existing.has("stroke")) entries.push(["stroke", "none"]);
+  const styleOrder = new Map([["fill", 0], ["opacity", 1], ["stroke", 2]]);
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => {
+      const leftOrder = styleOrder.get(left.entry[0]) ?? 3;
+      const rightOrder = styleOrder.get(right.entry[0]) ?? 3;
+      return leftOrder - rightOrder || left.index - right.index;
+    })
+    .map(({ entry }) => entry);
+}
 
 function normalizeSvgColor(value) {
   const color = String(value || "").trim();
@@ -90,6 +126,7 @@ function computePaintLayers(svg) {
     return {
       number: index + 1,
       element: element.localName,
+      elementNode: element,
       id: element.getAttribute("id") || "",
       paints: graphicElementPaints(element, svg),
       opacity: element.getAttribute("opacity") || "",
@@ -129,6 +166,7 @@ function remapAssetLayerEdits(assetId, remap) {
     if (newNumber) next.set(newNumber, edit);
   }
   assetLayerEdits.set(assetId, next);
+  assetModified.add(assetId);
 }
 
 // Keeps the multi-select checkbox selection valid after operations that renumber
@@ -172,6 +210,7 @@ function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
     remapAssetLayerEdits(asset.id, remap);
     remapAssetLayerSelection(asset.id, remap);
     refreshAssetSvgMetrics(data, svg);
+    assetModified.add(asset.id);
     onComplete?.();
   });
 }
@@ -348,6 +387,11 @@ function createDefaultShapeElement(svg, shape) {
     element.setAttribute("cx", String(centerX));
     element.setAttribute("cy", String(centerY));
     element.setAttribute("r", String(size / 2));
+  } else if (shape === "ellipse") {
+    element.setAttribute("cx", String(centerX));
+    element.setAttribute("cy", String(centerY));
+    element.setAttribute("rx", String(size / 2));
+    element.setAttribute("ry", String(size / 3));
   } else if (shape === "line") {
     element.setAttribute("x1", String(centerX - size / 2));
     element.setAttribute("y1", String(centerY));
@@ -355,6 +399,26 @@ function createDefaultShapeElement(svg, shape) {
     element.setAttribute("y2", String(centerY));
     element.setAttribute("stroke", "#6366F1");
     element.setAttribute("stroke-width", "2");
+  } else if (shape === "polyline" || shape === "polygon") {
+    const half = size / 2;
+    const points = [
+      [centerX, centerY - half],
+      [centerX + half, centerY],
+      [centerX, centerY + half],
+      [centerX - half, centerY]
+    ].map(([x, y]) => `${x},${y}`).join(" ");
+    element.setAttribute("points", points);
+    if (shape === "polyline") {
+      element.setAttribute("fill", "none");
+      element.setAttribute("stroke", "#6366F1");
+      element.setAttribute("stroke-width", "2");
+    }
+  } else if (shape === "path") {
+    const half = size / 2;
+    element.setAttribute(
+      "d",
+      `M ${centerX} ${centerY - half} L ${centerX + half} ${centerY} L ${centerX} ${centerY + half} L ${centerX - half} ${centerY} Z`
+    );
   }
   return element;
 }
@@ -568,11 +632,54 @@ function renderAssetPrimarySvg(root, asset, size = "fit") {
     svg.removeAttribute("height");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
+    const viewBox = assetViewBoxEdits.get(asset.id);
+    if (viewBox) svg.setAttribute("viewBox", viewBox.join(" "));
+    const sourceSize = assetSourceSizeEdits.get(asset.id);
+    if (sourceSize) {
+      svg.setAttribute("width", String(sourceSize.width));
+      svg.setAttribute("height", String(sourceSize.height));
+    }
+    applyAssetAccessibility(svg, asset.id);
     applyAssetLayerEdits(svg, asset.id);
     root.replaceChildren(svg);
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Preview unavailable";
   });
+}
+
+function applyAssetAccessibility(svg, assetId) {
+  if (!svg) return;
+  const accessibility = assetAccessibilityEdits.get(assetId);
+  if (!accessibility) return;
+  svg.removeAttribute("aria-labelledby");
+  svg.querySelector("title")?.remove();
+  svg.querySelector("desc")?.remove();
+  const labelledBy = [];
+  if (accessibility.title) {
+    const title = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "title");
+    title.id = `asset-${assetId}-title`;
+    title.textContent = accessibility.title;
+    svg.prepend(title);
+    labelledBy.push(title.id);
+  }
+  if (accessibility.description) {
+    const description = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "desc");
+    description.id = `asset-${assetId}-description`;
+    description.textContent = accessibility.description;
+    svg.insertBefore(description, svg.firstChild?.nextSibling || null);
+    labelledBy.push(description.id);
+  }
+  if (labelledBy.length) {
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-labelledby", labelledBy.join(" "));
+  } else {
+    svg.removeAttribute("role");
+  }
+}
+
+function parseSvgViewBox(value) {
+  const numbers = String(value || "").trim().split(/[\s,]+/).map(Number);
+  return numbers.length === 4 && numbers.every(Number.isFinite) ? numbers : null;
 }
 
 function updateAssetLayerEdits(assetId, layerNumber, updates) {
@@ -585,6 +692,7 @@ function updateAssetLayerEdits(assetId, layerNumber, updates) {
     paints: { ...existing.paints, ...updates.paints },
     attrs: { ...existing.attrs, ...updates.attrs }
   });
+  assetModified.add(assetId);
 }
 
 function applyAssetLayerEdits(svg, assetId) {
@@ -648,6 +756,14 @@ function applyAssetLayerEdits(svg, assetId) {
       element.setAttribute("transform", parts.join(" ").trim());
     }
   }
+  const groupEdits = assetGroupEdits.get(assetId);
+  if (groupEdits) {
+    const groups = Array.from(svg.querySelectorAll("g"));
+    groups.forEach((group, index) => {
+      const edit = groupEdits.get(index + 1);
+      if (edit?.opacity !== undefined) group.setAttribute("opacity", String(edit.opacity));
+    });
+  }
 }
 
 // Positions the primary preview tooltip next to `element`, anchoring its
@@ -686,10 +802,30 @@ function positionPrimaryTooltip(tooltip, container, element) {
 // sync. Returns `{ updateTooltip, cleanup }`; callers must invoke the
 // previous cleanup before wiring up a new asset (renderAssetDetail re-runs
 // per view).
-function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController) {
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController, points, shapeModeBanner, gridOverlay, gridVisibilityToggle, gridSnapToggle, gridSizeInput) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
+  };
+  const syncLayerDimensions = (layerNumber) => {
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return;
+    const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    let bbox = { x: 0, y: 0, width: 0, height: 0 };
+    try { bbox = element.getBBox(); } catch { /* element may not be renderable yet */ }
+    const box = edit?.resize ?? {
+      left: bbox.x,
+      top: bbox.y,
+      right: bbox.x + bbox.width,
+      bottom: bbox.y + bbox.height
+    };
+    layersController.syncDimensionInputs(layerNumber, {
+      x: box.left + (edit?.offsetX ?? 0),
+      y: box.top + (edit?.offsetY ?? 0),
+      width: box.right - box.left,
+      height: box.bottom - box.top,
+      rx: element.getAttribute("rx") || ""
+    });
   };
   const isTypingTarget = (element) => {
     if (!element) return false;
@@ -795,9 +931,271 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     handles.hidden = false;
   };
 
+  const getShapeEditElement = () => {
+    if (shapeEditLayerNumber === null) return null;
+    const element = getGraphics()[shapeEditLayerNumber - 1];
+    if (!element || !element.isConnected) return null;
+    return element;
+  };
+
+  const getShapePoints = (element, layerNumber) => {
+    if (element.localName === "line") {
+      const edit = assetLayerEdits.get(asset.id)?.get(layerNumber)?.attrs || {};
+      return [
+        { x: Number(edit.x1 ?? element.getAttribute("x1") ?? 0), y: Number(edit.y1 ?? element.getAttribute("y1") ?? 0) },
+        { x: Number(edit.x2 ?? element.getAttribute("x2") ?? 0), y: Number(edit.y2 ?? element.getAttribute("y2") ?? 0) }
+      ];
+    }
+    const edited = assetLayerEdits.get(asset.id)?.get(layerNumber)?.attrs?.points;
+    return parseSvgPoints(edited ?? element.getAttribute("points"));
+  };
+
+  // Points live in the element's own user space, so getScreenCTM (which folds in
+  // every ancestor transform plus the element's edit transform) is the only
+  // reliable way to line the handles up with what's rendered.
+  const getShapeMatrix = (element) => {
+    try { return element.getScreenCTM(); } catch { return null; }
+  };
+
+  const updatePointHandles = () => {
+    if (!points) return;
+    const element = getShapeEditElement();
+    const matrix = element && getShapeMatrix(element);
+    if (!element || !matrix) {
+      points.hidden = true;
+      points.replaceChildren();
+      return;
+    }
+    const containerRect = previewContainer.getBoundingClientRect();
+    if (!POINT_EDITABLE_SHAPES.has(element.localName) && element.localName !== "line") {
+      points.hidden = true;
+      points.replaceChildren();
+      return;
+    }
+    const shapePoints = getShapePoints(element, shapeEditLayerNumber);
+    if (points.childElementCount !== shapePoints.length) {
+      points.replaceChildren(...shapePoints.map((_, index) => {
+        const handleEl = document.createElement("button");
+        handleEl.type = "button";
+        handleEl.className = "asset-point-handle";
+        handleEl.dataset.pointIndex = String(index);
+        handleEl.setAttribute("aria-label", `Point ${index + 1}`);
+        return handleEl;
+      }));
+    }
+    shapePoints.forEach((point, index) => {
+      const handleEl = points.children[index];
+      if (!handleEl) return;
+      const screenX = matrix.a * point.x + matrix.c * point.y + matrix.e;
+      const screenY = matrix.b * point.x + matrix.d * point.y + matrix.f;
+      handleEl.style.left = `${screenX - containerRect.left}px`;
+      handleEl.style.top = `${screenY - containerRect.top}px`;
+    });
+    points.hidden = false;
+  };
+
+  const updateGridOverlay = () => {
+    if (!gridOverlay) return;
+    if (!gridVisible) {
+      gridOverlay.hidden = true;
+      return;
+    }
+    const element = getShapeEditElement() || root.querySelector("svg");
+    const matrix = element && getShapeMatrix(element);
+    if (!matrix) {
+      gridOverlay.hidden = true;
+      return;
+    }
+    // Convert the grid spacing (SVG user units) to screen pixels using the
+    // edited element's own screen matrix, so the overlay lines land exactly on
+    // the coordinates points snap to, regardless of canvas zoom/size.
+    const scaleX = Math.hypot(matrix.a, matrix.b);
+    const scaleY = Math.hypot(matrix.c, matrix.d);
+    const pixelX = Math.max(2, gridSize * scaleX);
+    const pixelY = Math.max(2, gridSize * scaleY);
+    // Anchor the pattern on user-space (0,0) rather than the container corner,
+    // otherwise the drawn lines sit at an arbitrary offset from the snap targets.
+    const containerRect = previewContainer.getBoundingClientRect();
+    const originX = matrix.e - containerRect.left;
+    const originY = matrix.f - containerRect.top;
+    gridOverlay.style.setProperty("--asset-grid-size-x", `${pixelX}px`);
+    gridOverlay.style.setProperty("--asset-grid-size-y", `${pixelY}px`);
+    gridOverlay.style.setProperty("--asset-grid-origin-x", `${originX}px`);
+    gridOverlay.style.setProperty("--asset-grid-origin-y", `${originY}px`);
+    gridOverlay.hidden = false;
+  };
+
+  const snapToGrid = (value) => (gridEnabled ? Math.round(value / gridSize) * gridSize : value);
+
+  const addShapeEditSide = () => {
+    const element = getShapeEditElement();
+    if (!element) return;
+    const currentPoints = getShapePoints(element, shapeEditLayerNumber);
+    if (currentPoints.length < 2) return;
+    // Insert the new vertex at the midpoint of the longest edge so the added
+    // side is visually meaningful rather than bunching points together.
+    let longestIndex = 0;
+    let longestLength = -Infinity;
+    for (let i = 0; i < currentPoints.length; i += 1) {
+      const a = currentPoints[i];
+      const b = currentPoints[(i + 1) % currentPoints.length];
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (length > longestLength) {
+        longestLength = length;
+        longestIndex = i;
+      }
+    }
+    const a = currentPoints[longestIndex];
+    const b = currentPoints[(longestIndex + 1) % currentPoints.length];
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const nextPoints = [...currentPoints];
+    nextPoints.splice(longestIndex + 1, 0, midpoint);
+    const serialized = serializeSvgPoints(nextPoints);
+    const attrs = element.localName === "line"
+      ? (index === 0 ? { x1: String(x), y1: String(y) } : { x2: String(x), y2: String(y) })
+      : { points: serialized };
+    updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs });
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    if (element.localName === "line") {
+      layersController.syncGeometryInput?.(shapeEditLayerNumber, index === 0 ? "x1" : "x2", String(x));
+      layersController.syncGeometryInput?.(shapeEditLayerNumber, index === 0 ? "y1" : "y2", String(y));
+    } else {
+      layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
+    }
+    updatePointHandles();
+  };
+
+  const updateShapeModeBanner = () => {
+    if (!shapeModeBanner) return;
+    const element = getShapeEditElement();
+    if (!element) {
+      shapeModeBanner.hidden = true;
+      shapeModeBanner.replaceChildren();
+      return;
+    }
+    const label = document.createElement("span");
+    const modeHint = POINT_EDITABLE_SHAPES.has(element.localName)
+      ? "drag vertices"
+      : element.localName === "line"
+        ? "drag endpoints"
+        : "edit geometry in the panel";
+    label.textContent = `Shape edit mode · Element ${shapeEditLayerNumber} (${element.localName}) — ${modeHint}, Esc to exit`;
+    const controls = document.createElement("span");
+    controls.textContent = POINT_EDITABLE_SHAPES.has(element.localName)
+      ? "Drag vertices"
+      : element.localName === "line"
+        ? "Drag endpoints"
+        : "Use the element editor geometry controls";
+    if (element.localName === "polygon" || element.localName === "polyline") {
+      const addSideButton = document.createElement("button");
+      addSideButton.type = "button";
+      addSideButton.className = "asset-shape-mode-add-side";
+      addSideButton.textContent = "+ Add side";
+      addSideButton.title = "Add a point on the longest edge";
+      addSideButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      addSideButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addShapeEditSide();
+      });
+      controls.append(" ", addSideButton);
+    }
+    shapeModeBanner.replaceChildren(label, controls);
+    shapeModeBanner.hidden = false;
+  };
+
+  const exitShapeEditMode = () => {
+    if (shapeEditLayerNumber === null) return;
+    const element = getShapeEditElement();
+    element?.classList.remove("is-shape-editing");
+    shapeEditLayerNumber = null;
+    pointDragState = null;
+    updatePointHandles();
+    updateShapeModeBanner();
+    updateGridOverlay();
+    updateHandles(layersController.getSelectedLayer());
+  };
+
+  const enterShapeEditMode = (layerNumber) => {
+    if (shapeEditLayerNumber === layerNumber) return;
+    exitShapeEditMode();
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return;
+    shapeEditLayerNumber = layerNumber;
+    element.classList.add("is-shape-editing");
+    if (handles) handles.hidden = !POINT_EDITABLE_SHAPES.has(element.localName) && element.localName !== "line";
+    updatePointHandles();
+    updateShapeModeBanner();
+    updateGridOverlay();
+  };
+
+  const onDoubleClick = (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest(":is(path, rect, circle, ellipse, line, polyline, polygon)")
+      : null;
+    if (!target) {
+      exitShapeEditMode();
+      return;
+    }
+    const layerNumber = getGraphics().indexOf(target) + 1;
+    if (!layerNumber) return;
+    event.preventDefault();
+    layersController.selectLayer?.(layerNumber);
+    layersController.openEditor?.(layerNumber);
+    enterShapeEditMode(layerNumber);
+  };
+
+  const onPointPointerDown = (event) => {
+    const handleEl = event.target instanceof Element ? event.target.closest(".asset-point-handle") : null;
+    if (!handleEl) return;
+    const element = getShapeEditElement();
+    const matrix = element && getShapeMatrix(element);
+    if (!element || !matrix) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { handleEl.setPointerCapture?.(event.pointerId); } catch { /* pointer already released */ }
+    handleEl.classList.add("is-active");
+    pointDragState = {
+      handleEl,
+      pointerId: event.pointerId,
+      index: Number(handleEl.dataset.pointIndex),
+      inverse: matrix.inverse(),
+      points: getShapePoints(element, shapeEditLayerNumber)
+    };
+  };
+
+  const onPointPointerMove = (event) => {
+    if (!pointDragState || event.pointerId !== pointDragState.pointerId) return;
+    const { inverse, index } = pointDragState;
+    const rawX = inverse.a * event.clientX + inverse.c * event.clientY + inverse.e;
+    const rawY = inverse.b * event.clientX + inverse.d * event.clientY + inverse.f;
+    const x = snapToGrid(rawX);
+    const y = snapToGrid(rawY);
+    const next = pointDragState.points.map((point, i) => (i === index ? { x, y } : point));
+    pointDragState.points = next;
+    const serialized = serializeSvgPoints(next);
+    updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs: { points: serialized } });
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
+    updatePointHandles();
+  };
+
+  const onPointPointerUp = (event) => {
+    if (!pointDragState || event.pointerId !== pointDragState.pointerId) return;
+    try { pointDragState.handleEl.releasePointerCapture?.(event.pointerId); } catch { /* not captured */ }
+    pointDragState.handleEl.classList.remove("is-active");
+    pointDragState = null;
+  };
 
   const updateTooltip = (layerNumber) => {
-    updateHandles(layerNumber);
+    if (shapeEditLayerNumber !== null && layerNumber !== shapeEditLayerNumber) exitShapeEditMode();
+    if (shapeEditLayerNumber !== null) {
+      if (handles) handles.hidden = true;
+      updatePointHandles();
+      updateGridOverlay();
+      updateShapeModeBanner();
+    } else {
+      updateHandles(layerNumber);
+    }
     if (!tooltip) return;
     if (layerNumber === null || layerNumber === undefined) {
       tooltip.hidden = true;
@@ -844,10 +1242,16 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
     }
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    for (const layerNumber of layerNumbers) syncLayerDimensions(layerNumber);
     updateTooltip(layersController.getSelectedLayer());
   };
 
   const onKeydown = (event) => {
+    if (event.key === "Escape" && shapeEditLayerNumber !== null) {
+      event.preventDefault();
+      exitShapeEditMode();
+      return;
+    }
     const layerNumber = layersController.getSelectedLayer();
     if (layerNumber === null || layerNumber === undefined || isTypingTarget(document.activeElement)) return;
     const deltas = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
@@ -983,6 +1387,14 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   let groupResizeState = null;
   let rotateState = null;
   let pendingSelectInfo = null;
+  // Shape edit mode: when set, `points`/`d` vertex handles replace the
+  // bounding-box handles for a single polygon/polyline layer.
+  let shapeEditLayerNumber = null;
+  let pointDragState = null;
+  // Grid visibility and snapping are independent canvas controls.
+  let gridVisible = false;
+  let gridEnabled = false;
+  let gridSize = 8;
 
   // Captures a selected element's current box in two related coordinate
   // frames: `base` is the pre-offset frame that per-element `resize` edits
@@ -1237,6 +1649,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         });
       }
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      for (const entry of entries) syncLayerDimensions(entry.layerNumber);
       updateHandles(layersController.getSelectedLayer());
       return;
     }
@@ -1285,6 +1698,12 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
           right = centerX + width / 2;
         }
       }
+      if (gridEnabled) {
+        if (handle.includes("e")) right = Math.max(left + minSize, snapToGrid(right));
+        if (handle.includes("w")) left = Math.min(right - minSize, snapToGrid(left));
+        if (handle.includes("s")) bottom = Math.max(top + minSize, snapToGrid(bottom));
+        if (handle.includes("n")) top = Math.min(bottom - minSize, snapToGrid(top));
+      }
       const applyResize = (box) => {
         updateAssetLayerEdits(asset.id, layerNumber, {
           resize: {
@@ -1296,6 +1715,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
           }
         });
         applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+        syncLayerDimensions(layerNumber);
       };
       applyResize({ left, top, right, bottom });
       // Snap whichever edges the dragged handle actually moves against the
@@ -1348,6 +1768,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         });
       }
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      for (const layerNumber of dragState.layerNumbers) syncLayerDimensions(layerNumber);
     };
     applyGroupOffset(deltaX, deltaY);
     // Snap the union of every dragged element's edges/centers to other
@@ -1376,6 +1797,14 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         if (xSnap) { deltaX += xSnap.delta * dragState.scaleX; showGuide("v", xSnap.screenPos); }
         if (ySnap) { deltaY += ySnap.delta * dragState.scaleY; showGuide("h", ySnap.screenPos); }
         if (xSnap || ySnap) applyGroupOffset(deltaX, deltaY);
+      }
+    }
+    if (gridEnabled) {
+      const primaryBase = dragState.bases.get(dragState.primaryLayerNumber);
+      if (primaryBase) {
+        deltaX = snapToGrid(primaryBase.offsetX + deltaX) - primaryBase.offsetX;
+        deltaY = snapToGrid(primaryBase.offsetY + deltaY) - primaryBase.offsetY;
+        applyGroupOffset(deltaX, deltaY);
       }
     }
     updateTooltip(dragState.primaryLayerNumber);
@@ -1422,27 +1851,64 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   window.addEventListener("keydown", onKeydown);
   previewContainer.addEventListener("pointerdown", onPointerDown);
   handles?.addEventListener("pointerdown", onHandlePointerDown);
+  points?.addEventListener("pointerdown", onPointPointerDown);
+  root.addEventListener("dblclick", onDoubleClick);
   root.addEventListener("pointerover", onPointerOver);
   root.addEventListener("pointerout", onPointerOut);
   window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointermove", onPointPointerMove);
   window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointerup", onPointPointerUp);
   window.addEventListener("pointercancel", onPointerUp);
+  window.addEventListener("pointercancel", onPointPointerUp);
   window.addEventListener("resize", onWindowResize);
+  const onGridVisibilityToggle = () => {
+    gridVisible = !gridVisible;
+    gridVisibilityToggle?.setAttribute("aria-pressed", String(gridVisible));
+    if (gridVisibilityToggle) gridVisibilityToggle.textContent = gridVisible ? "Hide grid" : "Show grid";
+    updateGridOverlay();
+  };
+  const onGridSnapToggle = () => {
+    gridEnabled = !gridEnabled;
+    gridSnapToggle?.setAttribute("aria-pressed", String(gridEnabled));
+    updateGridOverlay();
+  };
+  const onGridSizeInput = () => {
+    const next = Number(gridSizeInput?.value);
+    if (!Number.isFinite(next) || next <= 0) return;
+    gridSize = next;
+    updateGridOverlay();
+  };
+  gridVisibilityToggle?.addEventListener("click", onGridVisibilityToggle);
+  gridSnapToggle?.addEventListener("click", onGridSnapToggle);
+  gridSizeInput?.addEventListener("input", onGridSizeInput);
 
   return {
     updateTooltip,
     cleanup: () => {
+      exitShapeEditMode();
       window.removeEventListener("keydown", onKeydown);
       previewContainer.removeEventListener("pointerdown", onPointerDown);
       handles?.removeEventListener("pointerdown", onHandlePointerDown);
+      points?.removeEventListener("pointerdown", onPointPointerDown);
+      root.removeEventListener("dblclick", onDoubleClick);
       root.removeEventListener("pointerover", onPointerOver);
       root.removeEventListener("pointerout", onPointerOut);
       window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointermove", onPointPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointerup", onPointPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("pointercancel", onPointPointerUp);
       window.removeEventListener("resize", onWindowResize);
+      gridVisibilityToggle?.removeEventListener("click", onGridVisibilityToggle);
+      gridSnapToggle?.removeEventListener("click", onGridSnapToggle);
+      gridSizeInput?.removeEventListener("input", onGridSizeInput);
       if (tooltip) tooltip.hidden = true;
       if (handles) handles.hidden = true;
+      if (points) { points.hidden = true; points.replaceChildren(); }
+      if (shapeModeBanner) shapeModeBanner.hidden = true;
+      if (gridOverlay) gridOverlay.hidden = true;
       clearGuides();
     }
   };
@@ -1493,6 +1959,52 @@ function createSteppedNumberField({ value, step, ariaLabel, onChange }) {
   steppers.append(upButton, downButton);
   field.append(input, steppers);
   return { field, input };
+}
+
+// Editable field for path-like geometry attributes (`points` on polyline/polygon,
+// `d` on path). These aren't single numbers, so the stepped number field can't
+// represent them; a textarea keeps the full command/point list editable while
+// still committing through the same layer-edit pipeline.
+function createGeometryField({ value, ariaLabel, onChange }) {
+  const field = document.createElement("span");
+  field.className = "asset-layer-attr-field asset-layer-attr-field--geometry";
+  const input = document.createElement("textarea");
+  input.className = "asset-layer-attr-input asset-layer-attr-input--geometry";
+  input.rows = 3;
+  input.spellcheck = false;
+  input.value = value;
+  input.setAttribute("aria-label", ariaLabel);
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => event.stopPropagation());
+  input.addEventListener("input", () => {
+    const next = input.value.trim();
+    if (next) onChange(next);
+  });
+  field.appendChild(input);
+  return { field, input };
+}
+
+const GEOMETRY_ATTRIBUTES = new Set(["points", "d"]);
+
+// Shapes whose geometry is a flat list of vertices, so each point can be
+// exposed as an individually draggable handle in shape edit mode.
+const POINT_EDITABLE_SHAPES = new Set(["polygon", "polyline"]);
+
+function parseSvgPoints(value) {
+  const numbers = String(value || "")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number)
+    .filter(Number.isFinite);
+  const points = [];
+  for (let i = 0; i + 1 < numbers.length; i += 2) {
+    points.push({ x: numbers[i], y: numbers[i + 1] });
+  }
+  return points;
+}
+
+function serializeSvgPoints(points) {
+  return points.map(({ x, y }) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`).join(" ");
 }
 
 function renderAssetColorList(root, asset, onHighlight) {
@@ -1557,16 +2069,164 @@ function renderStaticAssetColorList(root, colors, emptyMessage) {
   }
 }
 
-function renderAssetDiagnostics(root, asset) {
+function renderAssetSourceSizeEditor(body, root, asset, data, onChange) {
+  const sourceViewBox = parseSvgViewBox(data.viewBox);
+  const sourceSize = assetSourceSizeEdits.get(asset.id) || {
+    width: Number.isFinite(Number(data.width)) ? Number(data.width) : sourceViewBox?.[2],
+    height: Number.isFinite(Number(data.height)) ? Number(data.height) : sourceViewBox?.[3]
+  };
+  assetSourceSizeEdits.set(asset.id, sourceSize);
+  const summary = document.createElement("div");
+  summary.className = "asset-accessibility-summary";
+  summary.dataset.sourceSizeSummary = "";
+  const label = document.createElement("span");
+  label.textContent = "Source size";
+  const value = document.createElement("code");
+  value.textContent = Number.isFinite(sourceSize.width) && Number.isFinite(sourceSize.height)
+    ? `${sourceSize.width} × ${sourceSize.height}`
+    : "Not defined";
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "asset-accessibility-edit";
+  editButton.setAttribute("aria-label", "Edit source size");
+  editButton.title = "Edit source size";
+  editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+  summary.append(label, value, editButton);
+
+  const editor = document.createElement("div");
+  editor.className = "asset-accessibility-editor";
+  editor.dataset.sourceSizeEditor = "";
+  editor.hidden = true;
+  const form = document.createElement("form");
+  const heading = document.createElement("strong");
+  heading.textContent = "Edit source size";
+  const widthInput = document.createElement("input");
+  const heightInput = document.createElement("input");
+  for (const [input, name] of [[widthInput, "Source width"], [heightInput, "Source height"]]) {
+    input.type = "number";
+    input.min = "0.01";
+    input.step = "0.01";
+    input.required = true;
+    input.setAttribute("aria-label", name);
+  }
+  const widthLabel = document.createElement("label");
+  widthLabel.textContent = "Width";
+  widthLabel.appendChild(widthInput);
+  const heightLabel = document.createElement("label");
+  heightLabel.textContent = "Height";
+  heightLabel.appendChild(heightInput);
+  const actions = document.createElement("div");
+  actions.className = "asset-accessibility-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  const apply = document.createElement("button");
+  apply.type = "submit";
+  apply.textContent = "Apply";
+  actions.append(cancel, apply);
+  form.append(heading, widthLabel, heightLabel, actions);
+  editor.appendChild(form);
+  body.insertBefore(summary, root);
+  body.insertBefore(editor, root);
+  editButton.addEventListener("click", () => {
+    widthInput.value = Number.isFinite(sourceSize.width) ? String(sourceSize.width) : "";
+    heightInput.value = Number.isFinite(sourceSize.height) ? String(sourceSize.height) : "";
+    editor.hidden = false;
+    widthInput.focus();
+  });
+  cancel.addEventListener("click", () => { editor.hidden = true; });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const next = { width: Number(widthInput.value), height: Number(heightInput.value) };
+    assetSourceSizeEdits.set(asset.id, next);
+    value.textContent = `${next.width} × ${next.height}`;
+    onChange?.(next);
+    editor.hidden = true;
+  });
+}
+
+function renderAssetDiagnostics(root, asset, onAccessibilityChange, onSourceSizeChange) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
     root.textContent = "";
+    const accessibility = assetAccessibilityEdits.get(asset.id) || {
+      title: data.accessibleName === "Not defined" ? "" : data.accessibleName,
+      description: data.description === "Not defined" ? "" : data.description
+    };
+    assetAccessibilityEdits.set(asset.id, accessibility);
+    const body = root.parentElement;
+    body?.querySelectorAll("[data-accessibility-editor]").forEach((element) => element.remove());
+    body?.querySelectorAll("[data-source-size-editor], [data-source-size-summary]").forEach((element) => element.remove());
+    if (body) renderAssetSourceSizeEditor(body, root, asset, data, onSourceSizeChange);
+    const summary = document.createElement("div");
+    summary.className = "asset-accessibility-summary";
+    const summaryLabel = document.createElement("span");
+    summaryLabel.textContent = "Accessibility";
+    const summaryValue = document.createElement("code");
+    summaryValue.textContent = accessibility.title || "No title or description";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "asset-accessibility-edit";
+    editButton.setAttribute("aria-label", "Edit accessible title and description");
+    editButton.title = "Edit accessible title and description";
+    editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+    summary.append(summaryLabel, summaryValue, editButton);
+
+    const editor = document.createElement("div");
+    editor.className = "asset-accessibility-editor";
+    editor.dataset.accessibilityEditor = "";
+    editor.hidden = true;
+    const form = document.createElement("form");
+    const heading = document.createElement("strong");
+    heading.textContent = "Edit accessibility";
+    const titleLabel = document.createElement("label");
+    titleLabel.textContent = "Accessible title";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.setAttribute("aria-label", "Accessible title");
+    titleLabel.appendChild(titleInput);
+    const descriptionLabel = document.createElement("label");
+    descriptionLabel.textContent = "Description";
+    const descriptionInput = document.createElement("textarea");
+    descriptionInput.rows = 2;
+    descriptionInput.setAttribute("aria-label", "Accessible description");
+    descriptionLabel.appendChild(descriptionInput);
+    const actions = document.createElement("div");
+    actions.className = "asset-accessibility-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+    const applyButton = document.createElement("button");
+    applyButton.type = "submit";
+    applyButton.textContent = "Apply";
+    actions.append(cancelButton, applyButton);
+    form.append(heading, titleLabel, descriptionLabel, actions);
+    editor.appendChild(form);
+    body?.insertBefore(summary, root);
+    body?.insertBefore(editor, root);
+
+    const openEditor = () => {
+      titleInput.value = accessibility.title;
+      descriptionInput.value = accessibility.description;
+      editor.hidden = false;
+      titleInput.focus();
+    };
+    const closeEditor = () => { editor.hidden = true; };
+    editButton.addEventListener("click", openEditor);
+    cancelButton.addEventListener("click", closeEditor);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const next = { title: titleInput.value.trim(), description: descriptionInput.value.trim() };
+      assetAccessibilityEdits.set(asset.id, next);
+      summaryValue.textContent = next.title || "No title or description";
+      onAccessibilityChange?.(next);
+      closeEditor();
+    });
     const diagnostics = [
-      ["ViewBox", data.viewBox],
-      ["Source size", `${data.width} × ${data.height}`],
       ["Elements", `${data.paintLayerCount} primitives`],
       ["Element order", "DOM order, bottom → top"],
       ["Topmost element", data.topmostLayer],
@@ -1576,8 +2236,6 @@ function renderAssetDiagnostics(root, asset) {
       ["Groups", data.groupCount ? `${data.groupCount} (max depth ${data.maxGroupDepth})` : "None"],
       ["Effects", data.effects],
       ["File size", data.byteSize < 1024 ? `${data.byteSize} B` : `${(data.byteSize / 1024).toFixed(1)} KB`],
-      ["Accessible title", data.accessibleName],
-      ["Description", data.description]
     ];
     for (const [label, value] of diagnostics) {
       const term = document.createElement("dt");
@@ -1587,6 +2245,7 @@ function renderAssetDiagnostics(root, asset) {
       root.appendChild(term);
       root.appendChild(description);
     }
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Diagnostics unavailable";
   });
@@ -1695,7 +2354,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     clearHoveredLayer: () => {},
     selectLayer: () => {},
     getSelectedLayer: () => null,
-    getMultiSelection: () => []
+    getMultiSelection: () => [],
+    syncDimensionInputs: () => {}
   };
 
   loadAssetSvgData(asset.source).then((data) => {
@@ -1716,6 +2376,10 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     let focusedLayerNumber = null;
     const layerItems = new Map();
     const layerButtons = new Map();
+    const layerEditButtons = new Map();
+    // Geometry textareas keyed `${layerNumber}:${attrName}`, so on-canvas point
+    // dragging can push updated values back into the open detail editor.
+    const geometryInputs = new Map();
     const layerCheckboxes = new Map();
     const layerEdits = assetLayerEdits.get(asset.id) || new Map();
     const selection = assetLayerSelection(asset.id);
@@ -1725,6 +2389,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     const addElement = (shape, container) => {
       createAssetElement(asset, shape, container, (newNumber) => {
         if (newNumber) assetPendingElementSelection.set(asset.id, newNumber);
+        assetModified.add(asset.id);
         showToast(`Added a new ${shape} element.`);
         renderAssetDetail(asset.id);
       });
@@ -1732,6 +2397,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     const { status: combineStatus, combineButton, clearButton } = renderAssetLayerActions(actionsBar, data, () => {
       const combining = [...selection];
       combineAssetLayers(asset, combining, (combinedNumbers) => {
+        assetModified.add(asset.id);
         selection.clear();
         if (combinedNumbers?.length) assetPendingGroupFocus.set(asset.id, new Set(combinedNumbers));
         showToast(`Combined ${combinedNumbers.length || combining.length} elements into a group.`);
@@ -1801,8 +2467,19 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       syncHighlight();
     };
     controller.selectLayer = selectLayer;
+    controller.openEditor = (layerNumber) => layerEditButtons.get(layerNumber)?.click();
     controller.getSelectedLayer = () => selectedLayerNumber;
     controller.getMultiSelection = () => [...multiSelection];
+    controller.syncGeometryInput = (layerNumber, name, value) => {
+      const input = geometryInputs.get(`${layerNumber}:${name}`);
+      if (input && input.value !== value) input.value = value;
+    };
+    controller.syncDimensionInputs = (layerNumber, values) => {
+      for (const [name, value] of Object.entries(values)) {
+        const input = geometryInputs.get(`${layerNumber}:${name}`);
+        if (input && document.activeElement !== input) input.value = String(value);
+      }
+    };
     const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
     function renderElementRow(layer) {
       const item = document.createElement("li");
@@ -2051,64 +2728,86 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       closeButton.title = "Close element editor";
       closeButton.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
       editorHeader.append(editorTitle, closeButton);
-      const moveControls = document.createElement("div");
-      moveControls.className = "asset-layer-move-controls";
-      const xInput = document.createElement("input");
-      xInput.type = "number";
-      xInput.step = "1";
-      xInput.value = String(currentEdits.offsetX || 0);
-      xInput.setAttribute("aria-label", `Element ${layer.number} horizontal offset`);
-      const yInput = document.createElement("input");
-      yInput.type = "number";
-      yInput.step = "1";
-      yInput.value = String(currentEdits.offsetY || 0);
-      yInput.setAttribute("aria-label", `Element ${layer.number} vertical offset`);
-      const setPosition = (x, y) => {
-        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-        xInput.value = String(x);
-        yInput.value = String(y);
-        updateAssetLayerEdits(asset.id, layer.number, { offsetX: x, offsetY: y });
+      const strokeControls = document.createElement("div");
+      strokeControls.className = "asset-layer-stroke-controls";
+      const currentAttrs = currentEdits.attrs || {};
+      const strokeLabel = document.createElement("label");
+      const strokeInput = document.createElement("input");
+      strokeInput.type = "color";
+      strokeInput.value = normalizeSvgColor(currentEdits.paints.stroke ?? resolveSvgPaint(layer.elementNode, "stroke", data.svg)) || "#000000";
+      strokeInput.setAttribute("aria-label", `Element ${layer.number} stroke color`);
+      const { field: strokeWidthField } = createSteppedNumberField({
+        value: currentAttrs["stroke-width"] ?? layer.elementNode.getAttribute("stroke-width") ?? "1",
+        step: "0.01",
+        ariaLabel: `Element ${layer.number} stroke width`,
+        onChange: (next) => {
+          if (next < 0) return;
+          updateAssetLayerEdits(asset.id, layer.number, {
+            paints: { stroke: strokeInput.value.toUpperCase() },
+            attrs: { "stroke-width": String(next) }
+          });
+          onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+        }
+      });
+      strokeInput.addEventListener("input", () => {
+        updateAssetLayerEdits(asset.id, layer.number, { paints: { stroke: strokeInput.value.toUpperCase() } });
         onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
-      };
-      xInput.addEventListener("input", () => setPosition(Number(xInput.value), Number(yInput.value)));
-      yInput.addEventListener("input", () => setPosition(Number(xInput.value), Number(yInput.value)));
-      const createNudgeButton = (direction, icon, xDelta, yDelta) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `asset-layer-nudge-button asset-layer-nudge-button--${direction}`;
-        button.setAttribute("aria-label", `Move element ${direction}`);
-        button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
-        button.addEventListener("click", () => setPosition(Number(xInput.value) + xDelta, Number(yInput.value) + yDelta));
-        return button;
-      };
-      const moveHeading = document.createElement("span");
-      moveHeading.textContent = "Position";
-      const xLabel = document.createElement("label");
-      xLabel.className = "asset-layer-position-input asset-layer-position-input--x";
-      xLabel.textContent = "X";
-      xLabel.appendChild(xInput);
-      const yLabel = document.createElement("label");
-      yLabel.className = "asset-layer-position-input asset-layer-position-input--y";
-      yLabel.textContent = "Y";
-      yLabel.appendChild(yInput);
-      const positionInputs = document.createElement("div");
-      positionInputs.className = "asset-layer-position-inputs";
-      positionInputs.append(xLabel, yLabel);
-      moveControls.append(
-        moveHeading,
-        createNudgeButton("up", "arrow-up", 0, -1),
-        createNudgeButton("left", "arrow-left", -1, 0),
-        positionInputs,
-        createNudgeButton("right", "arrow-right", 1, 0),
-        createNudgeButton("down", "arrow-down", 0, 1)
-      );
+      });
+      strokeLabel.append(strokeInput, strokeWidthField);
+      strokeControls.appendChild(strokeLabel);
       const attributes = document.createElement("dl");
       attributes.className = "asset-layer-attributes";
-      const currentAttrs = currentEdits.attrs || {};
-      for (const [name, value] of layer.attributes) {
+      const dimensions = document.createElement("div");
+      dimensions.className = "asset-layer-dimensions";
+      const dimensionsTitle = document.createElement("strong");
+      dimensionsTitle.textContent = "Dimensions";
+      const dimensionAttributes = document.createElement("dl");
+      dimensionAttributes.className = "asset-layer-attributes asset-layer-dimensions-list";
+      dimensions.append(dimensionsTitle, dimensionAttributes);
+      const elementGeometryNames = new Set(SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(layer.element) || []);
+      const appendDimensionAttribute = (name, value) => {
         const term = document.createElement("dt");
         term.textContent = name;
         const description = document.createElement("dd");
+        if (GEOMETRY_ATTRIBUTES.has(name)) {
+          const { field, input } = createGeometryField({
+            value: currentAttrs[name] ?? value,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: next } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          geometryInputs.set(`${layer.number}:${name}`, input);
+          description.appendChild(field);
+        } else {
+          const step = value.includes(".") ? "0.01" : "1";
+          const { field } = createSteppedNumberField({
+            value: currentAttrs[name] ?? value,
+            step,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          description.appendChild(field);
+        }
+        dimensionAttributes.append(term, description);
+      };
+      for (const [name, value] of enumerateElementAttributes(layer.element, layer.attributes)) {
+        if (elementGeometryNames.has(name)) {
+          appendDimensionAttribute(name, value);
+          continue;
+        }
+        const term = document.createElement("dt");
+        term.textContent = name;
+        const description = document.createElement("dd");
+        if (name === "stroke") {
+          description.appendChild(strokeControls);
+          attributes.append(term, description);
+          continue;
+        }
         const isColorAttr = name === "fill" || name === "stroke";
         const normalizedColor = isColorAttr ? normalizeSvgColor(currentEdits.paints[name] ?? value) : "";
         if (normalizedColor) {
@@ -2160,7 +2859,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
         }
         attributes.append(term, description);
       }
-      layerEditor.append(editorHeader, moveControls, attributes);
+      layerEditor.append(editorHeader, attributes, dimensions);
       const editButton = document.createElement("button");
       editButton.type = "button";
       editButton.className = "asset-layer-edit-button";
@@ -2195,6 +2894,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       item.appendChild(details);
       layerItems.set(layer.number, item);
       layerCheckboxes.set(layer.number, selectCheckbox);
+      layerEditButtons.set(layer.number, editButton);
       if (onHighlight) layerButtons.set(layer.number, number);
       return item;
     }
@@ -2218,6 +2918,31 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           const tag = document.createElement("code");
           tag.textContent = "<g>";
           header.appendChild(tag);
+          const allGroups = Array.from(data.svg.querySelectorAll("g"));
+          const groupKey = allGroups.indexOf(node.element) + 1;
+          const groupEdit = groupKey ? (assetGroupEdits.get(asset.id)?.get(groupKey) || {}) : {};
+          const groupOpacity = document.createElement("input");
+          groupOpacity.type = "number";
+          groupOpacity.min = "0";
+          groupOpacity.max = "1";
+          groupOpacity.step = "0.01";
+          groupOpacity.value = String(groupEdit.opacity ?? node.element.getAttribute("opacity") ?? 1);
+          groupOpacity.className = "asset-element-group-opacity";
+          groupOpacity.setAttribute("aria-label", "Group opacity");
+          groupOpacity.title = "Group opacity";
+          groupOpacity.addEventListener("pointerdown", (event) => event.stopPropagation());
+          groupOpacity.addEventListener("input", () => {
+            const next = Number(groupOpacity.value);
+            if (!Number.isFinite(next) || next < 0 || next > 1 || !groupKey) return;
+            if (!assetGroupEdits.has(asset.id)) assetGroupEdits.set(asset.id, new Map());
+            assetGroupEdits.get(asset.id).set(groupKey, { opacity: next });
+            assetModified.add(asset.id);
+            const primaryGroup = document.querySelectorAll("#asset-primary-svg svg g")[groupKey - 1];
+            if (primaryGroup) primaryGroup.setAttribute("opacity", String(next));
+            applyAssetLayerEdits(document.querySelector("#asset-primary-svg svg"), asset.id);
+            onEdit?.();
+          });
+          header.appendChild(groupOpacity);
           const nameInput = document.createElement("input");
           nameInput.type = "text";
           nameInput.className = "asset-element-group-name";
@@ -2293,7 +3018,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       layerItems.get(selectedLayerNumber)?.scrollIntoView({ block: "nearest" });
     }
     if (typeof lucide !== "undefined") lucide.createIcons();
-  }).catch(() => {
+  }).catch((error) => {
+    console.error("Failed to render element editor", error);
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Element information unavailable";
   });
 
@@ -2603,7 +3329,7 @@ function renderLogos(assets) {
 
 function renderAssetDetail(assetId) {
   const title = document.getElementById("asset-detail-title");
-  const meta = document.getElementById("asset-detail-meta");
+  const saveButton = document.getElementById("asset-save-button");
   const deepLink = document.getElementById("asset-deep-link");
   const projectLink = document.getElementById("asset-project-link");
   const overview = document.getElementById("asset-detail-overview");
@@ -2612,8 +3338,18 @@ function renderAssetDetail(assetId) {
   const primaryTooltip = document.getElementById("asset-primary-tooltip");
   const primaryHandles = document.getElementById("asset-primary-handles");
   const primaryGuides = document.getElementById("asset-primary-guides");
+  const primaryPoints = document.getElementById("asset-primary-points");
+  const primaryShapeMode = document.getElementById("asset-primary-shape-mode");
+  const primaryGrid = document.getElementById("asset-primary-grid");
+  const gridVisibilityToggle = document.getElementById("asset-grid-visibility-toggle");
+  const gridSnapToggle = document.getElementById("asset-grid-snap-toggle");
+  const gridSizeInput = document.getElementById("asset-grid-size-input");
+  const viewBoxInputs = ["x", "y", "width", "height"].map((name) => document.getElementById(`asset-viewbox-${name}`));
+  const viewBoxValue = document.getElementById("asset-viewbox-value");
+  const viewBoxEditor = document.getElementById("asset-viewbox-editor");
+  const viewBoxForm = document.getElementById("asset-viewbox-form");
+  const viewBoxCancel = document.getElementById("asset-viewbox-cancel");
   const primaryCanvas = document.getElementById("asset-primary-canvas");
-  const primarySizeCaption = document.getElementById("asset-primary-size-caption");
   const previewSizeSelect = document.getElementById("asset-preview-size-select");
   const previewSizeListToggle = document.getElementById("asset-preview-size-list-toggle");
   const colorsSection = document.getElementById("asset-detail-colors-section");
@@ -2630,7 +3366,7 @@ function renderAssetDetail(assetId) {
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
   const layerActions = document.getElementById("asset-layer-actions");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid) return;
+  if (!title || !saveButton || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || !viewBoxValue || !viewBoxEditor || !viewBoxForm || !viewBoxCancel || viewBoxInputs.some((input) => !input)) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -2652,7 +3388,6 @@ function renderAssetDetail(assetId) {
     activePrimaryLayerInteractionCleanup?.();
     activePrimaryLayerInteractionCleanup = null;
     title.textContent = "Asset not found";
-    meta.textContent = `No logo or glyph exists for id: ${assetId}`;
     deepLink.href = window.location.href;
     projectLink.href = "#logos";
     projectLink.setAttribute("aria-label", "Back to all assets");
@@ -2664,8 +3399,49 @@ function renderAssetDetail(assetId) {
   }
 
   const projectName = projectForAsset(asset);
+  const syncSaveButton = () => {
+    saveButton.disabled = !assetModified.has(asset.id);
+  };
+  syncSaveButton();
+  saveButton.onclick = () => {
+    const svg = primarySvg.querySelector("svg");
+    if (!svg || !assetModified.has(asset.id)) return;
+    const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${asset.id}.svg`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    assetModified.delete(asset.id);
+    syncSaveButton();
+  };
+  loadAssetSvgData(asset.source).then((data) => {
+    const viewBox = assetViewBoxEdits.get(asset.id) || parseSvgViewBox(data.viewBox);
+    if (!viewBox) return;
+    assetViewBoxEdits.set(asset.id, viewBox);
+    viewBoxInputs.forEach((input, index) => { input.value = String(viewBox[index]); });
+    viewBoxValue.textContent = viewBox.join(" ");
+  });
+  const updateViewBox = () => {
+    const viewBox = viewBoxInputs.map((input) => Number(input.value));
+    if (!Number.isFinite(viewBox[0]) || !Number.isFinite(viewBox[1]) || !Number.isFinite(viewBox[2]) || !Number.isFinite(viewBox[3]) || viewBox[2] <= 0 || viewBox[3] <= 0) return;
+    assetViewBoxEdits.set(asset.id, viewBox);
+    viewBoxValue.textContent = viewBox.join(" ");
+    const svg = primarySvg.querySelector("svg");
+    if (svg) svg.setAttribute("viewBox", viewBox.join(" "));
+    assetModified.add(asset.id);
+    syncSaveButton();
+  };
+  viewBoxForm.onsubmit = (event) => {
+    event.preventDefault();
+    updateViewBox();
+    viewBoxEditor.hidden = true;
+  };
+  viewBoxCancel.onclick = () => { viewBoxEditor.hidden = true; };
+  document.getElementById("asset-viewbox-edit").onclick = () => {
+    viewBoxEditor.hidden = false;
+  };
   title.textContent = asset.label;
-  meta.textContent = `${asset.id} · ${asset.source} · ${projectName} · ${logoTypeForAsset(asset)}`;
   deepLink.href = window.location.href;
   deepLink.setAttribute("aria-label", `${asset.label} deep link`);
   projectLink.href = projectRouteHref(projectName);
@@ -2685,7 +3461,6 @@ function renderAssetDetail(assetId) {
     option.textContent = `${size}px`;
     return option;
   }));
-  primarySizeCaption.textContent = previewSizeLabel(defaultPreviewSize);
   renderAssetPrimarySvg(primarySvg, asset, defaultPreviewSize);
   activePrimaryLayerInteractionCleanup?.();
   const primaryInteractionState = { updateTooltip: () => {} };
@@ -2695,11 +3470,14 @@ function renderAssetDetail(assetId) {
     layerActions,
     asset,
     (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
-    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
+    () => {
+      applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id);
+      syncSaveButton();
+    },
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
     (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
   );
-  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController);
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController, primaryPoints, primaryShapeMode, primaryGrid, gridVisibilityToggle, gridSnapToggle, gridSizeInput);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
   activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
@@ -2716,7 +3494,11 @@ function renderAssetDetail(assetId) {
   const addCustomColor = () => {
     const color = customColorInput.value.toUpperCase();
     const colors = assetCustomColors.get(asset.id) || [];
-    if (!colors.includes(color)) assetCustomColors.set(asset.id, [...colors, color]);
+    if (!colors.includes(color)) {
+      assetCustomColors.set(asset.id, [...colors, color]);
+      assetModified.add(asset.id);
+      syncSaveButton();
+    }
     renderCustomColors();
   };
   renderCustomColors();
@@ -2726,11 +3508,23 @@ function renderAssetDetail(assetId) {
     else customColorInput.click();
   };
   customColorInput.onchange = addCustomColor;
-  renderAssetDiagnostics(diagnostics, asset);
+  renderAssetDiagnostics(diagnostics, asset, () => {
+    applyAssetAccessibility(primarySvg.querySelector("svg"), asset.id);
+    assetModified.add(asset.id);
+    syncSaveButton();
+  }, () => {
+    const svg = primarySvg.querySelector("svg");
+    const sourceSize = assetSourceSizeEdits.get(asset.id);
+    if (svg && sourceSize) {
+      svg.setAttribute("width", String(sourceSize.width));
+      svg.setAttribute("height", String(sourceSize.height));
+    }
+    assetModified.add(asset.id);
+    syncSaveButton();
+  });
 
   const showCanvasSize = (size) => {
     previewSizeSelect.value = String(size);
-    primarySizeCaption.textContent = previewSizeLabel(size);
     setAssetPrimarySvgSize(primarySvg, asset, size);
     primaryCanvas.hidden = false;
     sizeGrid.hidden = true;

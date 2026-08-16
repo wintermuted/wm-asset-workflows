@@ -407,6 +407,10 @@
   margin-top: 0;
 }
 
+#asset-save-button {
+  margin-left: auto;
+}
+
 .project-detail-title-row {
   display: flex;
   align-items: center;
@@ -786,6 +790,364 @@
 .asset-primary-svg svg {
   width: min(100%, var(--asset-preview-size, 512px));
   aspect-ratio: 1 / 1;
+}
+
+/* Shape edit mode: entered by double-clicking a polygon/polyline, it swaps the
+   bounding-box resize handles for one draggable handle per vertex. */
+.asset-primary-points {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.asset-primary-points[hidden] {
+  display: none;
+}
+
+.asset-point-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1.5px solid #7c3aed;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: move;
+}
+
+.asset-point-handle:hover,
+.asset-point-handle:focus-visible {
+  background: #7c3aed;
+  outline: none;
+}
+
+.asset-point-handle.is-active {
+  background: #7c3aed;
+}
+
+.asset-primary-shape-mode {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  transform: translateX(-50%);
+  border-radius: var(--wm-radius-xs);
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.asset-primary-shape-mode[hidden] {
+  display: none;
+}
+
+.asset-shape-mode-add-side {
+  pointer-events: auto;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--wm-radius-xs);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.asset-shape-mode-add-side:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.asset-shape-mode-grid-toggle {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--wm-radius-xs);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.asset-shape-mode-grid-toggle:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.asset-shape-mode-grid-toggle[aria-pressed="true"] {
+  background: #fff;
+  color: #7c3aed;
+}
+
+.asset-shape-mode-grid-size {
+  pointer-events: auto;
+  width: 3.2rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--wm-radius-xs);
+  background: rgba(255, 255, 255, 0.9);
+  color: #1e1b2e;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* Faint snap-grid overlay, shown only while in shape edit mode with the grid
+   helper toggled on. Line spacing is set inline via --asset-grid-size. */
+.asset-primary-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(124, 58, 237, 0.35) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(124, 58, 237, 0.35) 1px, transparent 1px);
+  background-size: var(--asset-grid-size-x, 8px) var(--asset-grid-size-y, 8px);
+  background-position: var(--asset-grid-origin-x, 0px) var(--asset-grid-origin-y, 0px);
+}
+
+.asset-primary-grid[hidden] {
+  display: none;
+}
+
+.asset-grid-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.asset-grid-size-control input {
+  width: 4.5rem;
+}
+
+.asset-viewbox-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+}
+
+.asset-viewbox-summary code {
+  flex: 1;
+}
+
+.asset-detail-diagnostics .asset-detail-disclosure-body {
+  position: relative;
+}
+
+.asset-viewbox-edit {
+  display: inline-grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-xs);
+  color: var(--wm-color-text-muted);
+  background: var(--wm-color-surface-solid);
+  cursor: pointer;
+}
+
+.asset-viewbox-edit:hover,
+.asset-viewbox-edit:focus-visible,
+.asset-accessibility-edit:hover,
+.asset-accessibility-edit:focus-visible {
+  border-color: var(--wm-color-accent);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-solid);
+}
+
+.asset-accessibility-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+}
+
+.asset-accessibility-summary code {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-accessibility-edit {
+  display: inline-grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-xs);
+  color: var(--wm-color-text-muted);
+  background: var(--wm-color-surface-solid);
+  cursor: pointer;
+}
+
+.asset-viewbox-edit svg,
+.asset-accessibility-edit svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.asset-viewbox-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0.75rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: 0.4rem;
+  background: var(--wm-color-surface-solid);
+  color: var(--wm-color-text);
+  box-shadow: var(--wm-shadow-md);
+}
+
+.asset-viewbox-editor[hidden] {
+  display: none;
+}
+
+.asset-viewbox-editor form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.asset-viewbox-editor strong,
+.asset-viewbox-actions {
+  grid-column: 1 / -1;
+}
+
+.asset-viewbox-editor label {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.asset-viewbox-editor input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  padding: 0.3rem 0.4rem;
+}
+
+.asset-viewbox-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.asset-viewbox-actions button {
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.35rem 0.65rem;
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-viewbox-actions button[type="submit"] {
+  border-color: var(--wm-color-accent);
+  color: var(--wm-color-text-inverse, #fff);
+  background: var(--wm-color-accent);
+}
+
+.asset-viewbox-actions button:hover {
+  border-color: var(--wm-color-accent);
+}
+
+.asset-accessibility-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0.75rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: 0.4rem;
+  background: var(--wm-color-surface-solid);
+  color: var(--wm-color-text);
+  box-shadow: var(--wm-shadow-md);
+}
+
+.asset-accessibility-editor[hidden] {
+  display: none;
+}
+
+.asset-accessibility-editor form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.asset-accessibility-editor strong {
+  font-size: 0.85rem;
+}
+
+.asset-accessibility-editor label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--wm-color-text-muted);
+  font-size: 0.75rem;
+}
+
+.asset-accessibility-editor input,
+.asset-accessibility-editor textarea {
+  width: 100%;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.35rem 0.45rem;
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  font: inherit;
+}
+
+.asset-accessibility-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.asset-accessibility-actions button {
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.35rem 0.65rem;
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-accessibility-actions button[type="submit"] {
+  border-color: var(--wm-color-accent);
+  color: var(--wm-color-text-inverse, #fff);
+  background: var(--wm-color-accent);
+}
+
+/* Dashed accent outline on the element being point-edited, so the active
+   shape stays identifiable even when its handles overlap other elements. */
+.asset-primary-svg svg .is-shape-editing {
+  outline: none;
+  stroke: #7c3aed;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
 }
 
 .asset-primary-svg svg {
@@ -1513,6 +1875,29 @@ button.asset-layer-number {
   white-space: normal;
 }
 
+.asset-layer-stroke-controls {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.asset-layer-stroke-controls label {
+  display: grid;
+  grid-template-columns: 2rem minmax(4rem, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.asset-layer-stroke-controls input[type="color"] {
+  width: 2rem;
+  height: 1.5rem;
+  padding: 0;
+}
+
+.asset-element-group-opacity {
+  width: 3.5rem;
+  margin-left: auto;
+}
+
 .asset-layer-editor-panel {
   width: 100%;
 }
@@ -1621,6 +2006,15 @@ button.asset-layer-number {
   overflow-wrap: anywhere;
 }
 
+.asset-layer-dimensions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.asset-layer-dimensions-list {
+  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+}
+
 .asset-layer-attr-field {
   display: inline-flex;
   align-items: center;
@@ -1660,6 +2054,17 @@ button.asset-layer-number {
 .asset-layer-attr-step svg {
   width: 0.65rem;
   height: 0.65rem;
+}
+
+.asset-layer-attr-field--geometry {
+  display: flex;
+  width: 100%;
+}
+
+.asset-layer-attr-input--geometry {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.4;
 }
 
 .asset-layer-attr-color-field {
