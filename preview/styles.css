@@ -1875,6 +1875,29 @@ button.asset-layer-number {
   white-space: normal;
 }
 
+.asset-layer-stroke-controls {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.asset-layer-stroke-controls label {
+  display: grid;
+  grid-template-columns: 2rem minmax(4rem, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.asset-layer-stroke-controls input[type="color"] {
+  width: 2rem;
+  height: 1.5rem;
+  padding: 0;
+}
+
+.asset-element-group-opacity {
+  width: 3.5rem;
+  margin-left: auto;
+}
+
 .asset-layer-editor-panel {
   width: 100%;
 }
@@ -1981,6 +2004,15 @@ button.asset-layer-number {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.asset-layer-dimensions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.asset-layer-dimensions-list {
+  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
 }
 
 .asset-layer-attr-field {
