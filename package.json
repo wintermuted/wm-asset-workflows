@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "description": "Agentic Icon Builder for SVG-first logo and glyph workflows, previews, and exports.",
   "scripts": {
     "preview": "npm run ensure:deps && npm run build:specs && node scripts/node/serve-preview.mjs",

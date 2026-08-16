@@ -23,7 +23,7 @@ export async function uniqueGroundingPath(root, slug, filename, sources) {
 }
 
 export async function analyzeImagePalette(root, imagePath) {
-  const scriptPath = join(root, "scripts", "python", "analyze_palette.py");
+  const scriptPath = join(root, "packages", "image-generation", "src", "analyze_palette.py");
   const { stdout } = await execFileAsync("python3", [scriptPath, imagePath, "--colors", "10"], { maxBuffer: 1024 * 1024 });
   const palette = JSON.parse(stdout);
   if (!Array.isArray(palette)) throw new Error("Palette analyzer returned an invalid result");
