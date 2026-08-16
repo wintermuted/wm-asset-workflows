@@ -407,6 +407,10 @@
   margin-top: 0;
 }
 
+#asset-save-button {
+  margin-left: auto;
+}
+
 .project-detail-title-row {
   display: flex;
   align-items: center;
