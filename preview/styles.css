@@ -788,6 +788,147 @@
   aspect-ratio: 1 / 1;
 }
 
+/* Shape edit mode: entered by double-clicking a polygon/polyline, it swaps the
+   bounding-box resize handles for one draggable handle per vertex. */
+.asset-primary-points {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.asset-primary-points[hidden] {
+  display: none;
+}
+
+.asset-point-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1.5px solid #7c3aed;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: move;
+}
+
+.asset-point-handle:hover,
+.asset-point-handle:focus-visible {
+  background: #7c3aed;
+  outline: none;
+}
+
+.asset-point-handle.is-active {
+  background: #7c3aed;
+}
+
+.asset-primary-shape-mode {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  transform: translateX(-50%);
+  border-radius: var(--wm-radius-xs);
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.asset-primary-shape-mode[hidden] {
+  display: none;
+}
+
+.asset-shape-mode-add-side {
+  pointer-events: auto;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--wm-radius-xs);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.asset-shape-mode-add-side:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.asset-shape-mode-grid-toggle {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--wm-radius-xs);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.asset-shape-mode-grid-toggle:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.asset-shape-mode-grid-toggle[aria-pressed="true"] {
+  background: #fff;
+  color: #7c3aed;
+}
+
+.asset-shape-mode-grid-size {
+  pointer-events: auto;
+  width: 3.2rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--wm-radius-xs);
+  background: rgba(255, 255, 255, 0.9);
+  color: #1e1b2e;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* Faint snap-grid overlay, shown only while in shape edit mode with the grid
+   helper toggled on. Line spacing is set inline via --asset-grid-size. */
+.asset-primary-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(124, 58, 237, 0.35) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(124, 58, 237, 0.35) 1px, transparent 1px);
+  background-size: var(--asset-grid-size-x, 8px) var(--asset-grid-size-y, 8px);
+  background-position: var(--asset-grid-origin-x, 0px) var(--asset-grid-origin-y, 0px);
+}
+
+.asset-primary-grid[hidden] {
+  display: none;
+}
+
+/* Dashed accent outline on the element being point-edited, so the active
+   shape stays identifiable even when its handles overlap other elements. */
+.asset-primary-svg svg .is-shape-editing {
+  outline: none;
+  stroke: #7c3aed;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+
 .asset-primary-svg svg {
   display: block;
   height: auto;
@@ -1660,6 +1801,17 @@ button.asset-layer-number {
 .asset-layer-attr-step svg {
   width: 0.65rem;
   height: 0.65rem;
+}
+
+.asset-layer-attr-field--geometry {
+  display: flex;
+  width: 100%;
+}
+
+.asset-layer-attr-input--geometry {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.4;
 }
 
 .asset-layer-attr-color-field {

@@ -141,12 +141,34 @@ let activePrimaryLayerInteractionCleanup = null;
 const NEW_ELEMENT_SHAPES = [
   { value: "rect", label: "Rectangle", icon: "square" },
   { value: "circle", label: "Circle", icon: "circle" },
-  { value: "line", label: "Line", icon: "minus" }
+  { value: "ellipse", label: "Ellipse", icon: "circle" },
+  { value: "line", label: "Line", icon: "minus" },
+  { value: "polyline", label: "Polyline", icon: "spline" },
+  { value: "polygon", label: "Polygon", icon: "pentagon" },
+  { value: "path", label: "Path", icon: "pen-line" }
 ];
 const SVG_PAINT_PROPERTIES = ["fill", "stroke", "stop-color", "flood-color", "lighting-color", "color"];
 const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, polygon";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
+const SVG_ELEMENT_GEOMETRY_ATTRIBUTES = new Map([
+  ["rect", ["x", "y", "width", "height"]],
+  ["circle", ["cx", "cy", "r"]],
+  ["ellipse", ["cx", "cy", "rx", "ry"]],
+  ["line", ["x1", "y1", "x2", "y2"]],
+  ["polyline", ["points"]],
+  ["polygon", ["points"]],
+  ["path", ["d"]]
+]);
+
+function enumerateElementAttributes(elementName, attributes) {
+  const entries = [...attributes];
+  const existing = new Set(entries.map(([name]) => name));
+  for (const name of SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(elementName) || []) {
+    if (!existing.has(name)) entries.push([name, ""]);
+  }
+  return entries;
+}
 
 function normalizeSvgColor(value) {
   const color = String(value || "").trim();
@@ -451,6 +473,11 @@ function createDefaultShapeElement(svg, shape) {
     element.setAttribute("cx", String(centerX));
     element.setAttribute("cy", String(centerY));
     element.setAttribute("r", String(size / 2));
+  } else if (shape === "ellipse") {
+    element.setAttribute("cx", String(centerX));
+    element.setAttribute("cy", String(centerY));
+    element.setAttribute("rx", String(size / 2));
+    element.setAttribute("ry", String(size / 3));
   } else if (shape === "line") {
     element.setAttribute("x1", String(centerX - size / 2));
     element.setAttribute("y1", String(centerY));
@@ -458,6 +485,26 @@ function createDefaultShapeElement(svg, shape) {
     element.setAttribute("y2", String(centerY));
     element.setAttribute("stroke", "#6366F1");
     element.setAttribute("stroke-width", "2");
+  } else if (shape === "polyline" || shape === "polygon") {
+    const half = size / 2;
+    const points = [
+      [centerX, centerY - half],
+      [centerX + half, centerY],
+      [centerX, centerY + half],
+      [centerX - half, centerY]
+    ].map(([x, y]) => `${x},${y}`).join(" ");
+    element.setAttribute("points", points);
+    if (shape === "polyline") {
+      element.setAttribute("fill", "none");
+      element.setAttribute("stroke", "#6366F1");
+      element.setAttribute("stroke-width", "2");
+    }
+  } else if (shape === "path") {
+    const half = size / 2;
+    element.setAttribute(
+      "d",
+      `M ${centerX} ${centerY - half} L ${centerX + half} ${centerY} L ${centerX} ${centerY + half} L ${centerX - half} ${centerY} Z`
+    );
   }
   return element;
 }
@@ -789,7 +836,7 @@ function positionPrimaryTooltip(tooltip, container, element) {
 // sync. Returns `{ updateTooltip, cleanup }`; callers must invoke the
 // previous cleanup before wiring up a new asset (renderAssetDetail re-runs
 // per view).
-function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController) {
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController, points, shapeModeBanner, gridOverlay) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
@@ -898,9 +945,271 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     handles.hidden = false;
   };
 
+  const getShapeEditElement = () => {
+    if (shapeEditLayerNumber === null) return null;
+    const element = getGraphics()[shapeEditLayerNumber - 1];
+    if (!element || !element.isConnected || !POINT_EDITABLE_SHAPES.has(element.localName)) return null;
+    return element;
+  };
+
+  const getShapePoints = (element, layerNumber) => {
+    const edited = assetLayerEdits.get(asset.id)?.get(layerNumber)?.attrs?.points;
+    return parseSvgPoints(edited ?? element.getAttribute("points"));
+  };
+
+  // Points live in the element's own user space, so getScreenCTM (which folds in
+  // every ancestor transform plus the element's edit transform) is the only
+  // reliable way to line the handles up with what's rendered.
+  const getShapeMatrix = (element) => {
+    try { return element.getScreenCTM(); } catch { return null; }
+  };
+
+  const updatePointHandles = () => {
+    if (!points) return;
+    const element = getShapeEditElement();
+    const matrix = element && getShapeMatrix(element);
+    if (!element || !matrix) {
+      points.hidden = true;
+      points.replaceChildren();
+      return;
+    }
+    const containerRect = previewContainer.getBoundingClientRect();
+    const shapePoints = getShapePoints(element, shapeEditLayerNumber);
+    if (points.childElementCount !== shapePoints.length) {
+      points.replaceChildren(...shapePoints.map((_, index) => {
+        const handleEl = document.createElement("button");
+        handleEl.type = "button";
+        handleEl.className = "asset-point-handle";
+        handleEl.dataset.pointIndex = String(index);
+        handleEl.setAttribute("aria-label", `Point ${index + 1}`);
+        return handleEl;
+      }));
+    }
+    shapePoints.forEach((point, index) => {
+      const handleEl = points.children[index];
+      if (!handleEl) return;
+      const screenX = matrix.a * point.x + matrix.c * point.y + matrix.e;
+      const screenY = matrix.b * point.x + matrix.d * point.y + matrix.f;
+      handleEl.style.left = `${screenX - containerRect.left}px`;
+      handleEl.style.top = `${screenY - containerRect.top}px`;
+    });
+    points.hidden = false;
+  };
+
+  const updateGridOverlay = () => {
+    if (!gridOverlay) return;
+    if (!gridEnabled || shapeEditLayerNumber === null) {
+      gridOverlay.hidden = true;
+      return;
+    }
+    const element = getShapeEditElement();
+    const matrix = element && getShapeMatrix(element);
+    if (!matrix) {
+      gridOverlay.hidden = true;
+      return;
+    }
+    // Convert the grid spacing (SVG user units) to screen pixels using the
+    // edited element's own screen matrix, so the overlay lines land exactly on
+    // the coordinates points snap to, regardless of canvas zoom/size.
+    const scaleX = Math.hypot(matrix.a, matrix.b);
+    const scaleY = Math.hypot(matrix.c, matrix.d);
+    const pixelX = Math.max(2, gridSize * scaleX);
+    const pixelY = Math.max(2, gridSize * scaleY);
+    // Anchor the pattern on user-space (0,0) rather than the container corner,
+    // otherwise the drawn lines sit at an arbitrary offset from the snap targets.
+    const containerRect = previewContainer.getBoundingClientRect();
+    const originX = matrix.e - containerRect.left;
+    const originY = matrix.f - containerRect.top;
+    gridOverlay.style.setProperty("--asset-grid-size-x", `${pixelX}px`);
+    gridOverlay.style.setProperty("--asset-grid-size-y", `${pixelY}px`);
+    gridOverlay.style.setProperty("--asset-grid-origin-x", `${originX}px`);
+    gridOverlay.style.setProperty("--asset-grid-origin-y", `${originY}px`);
+    gridOverlay.hidden = false;
+  };
+
+  const snapToGrid = (value) => (gridEnabled ? Math.round(value / gridSize) * gridSize : value);
+
+  const addShapeEditSide = () => {
+    const element = getShapeEditElement();
+    if (!element) return;
+    const currentPoints = getShapePoints(element, shapeEditLayerNumber);
+    if (currentPoints.length < 2) return;
+    // Insert the new vertex at the midpoint of the longest edge so the added
+    // side is visually meaningful rather than bunching points together.
+    let longestIndex = 0;
+    let longestLength = -Infinity;
+    for (let i = 0; i < currentPoints.length; i += 1) {
+      const a = currentPoints[i];
+      const b = currentPoints[(i + 1) % currentPoints.length];
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (length > longestLength) {
+        longestLength = length;
+        longestIndex = i;
+      }
+    }
+    const a = currentPoints[longestIndex];
+    const b = currentPoints[(longestIndex + 1) % currentPoints.length];
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const nextPoints = [...currentPoints];
+    nextPoints.splice(longestIndex + 1, 0, midpoint);
+    const serialized = serializeSvgPoints(nextPoints);
+    updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs: { points: serialized } });
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
+    updatePointHandles();
+  };
+
+  const updateShapeModeBanner = () => {
+    if (!shapeModeBanner) return;
+    const element = getShapeEditElement();
+    if (!element) {
+      shapeModeBanner.hidden = true;
+      shapeModeBanner.replaceChildren();
+      return;
+    }
+    const label = document.createElement("span");
+    label.textContent = `Shape edit mode · Element ${shapeEditLayerNumber} (${element.localName}) — drag points, Esc to exit`;
+    const addSideButton = document.createElement("button");
+    addSideButton.type = "button";
+    addSideButton.className = "asset-shape-mode-add-side";
+    addSideButton.textContent = "+ Add side";
+    addSideButton.title = "Add a point on the longest edge";
+    addSideButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+    addSideButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      addShapeEditSide();
+    });
+    const gridToggle = document.createElement("button");
+    gridToggle.type = "button";
+    gridToggle.className = "asset-shape-mode-grid-toggle";
+    gridToggle.textContent = "Snap to grid";
+    gridToggle.title = "Toggle a grid overlay and snap dragged points to it";
+    gridToggle.setAttribute("aria-pressed", String(gridEnabled));
+    gridToggle.addEventListener("pointerdown", (event) => event.stopPropagation());
+    gridToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      gridEnabled = !gridEnabled;
+      updateShapeModeBanner();
+      updateGridOverlay();
+    });
+    const gridSizeInput = document.createElement("input");
+    gridSizeInput.type = "number";
+    gridSizeInput.min = "1";
+    gridSizeInput.step = "1";
+    gridSizeInput.value = String(gridSize);
+    gridSizeInput.className = "asset-shape-mode-grid-size";
+    gridSizeInput.title = "Grid spacing (SVG units)";
+    gridSizeInput.setAttribute("aria-label", "Grid spacing in SVG units");
+    gridSizeInput.addEventListener("pointerdown", (event) => event.stopPropagation());
+    gridSizeInput.addEventListener("click", (event) => event.stopPropagation());
+    gridSizeInput.addEventListener("keydown", (event) => event.stopPropagation());
+    gridSizeInput.addEventListener("input", () => {
+      const next = Number(gridSizeInput.value);
+      if (Number.isFinite(next) && next > 0) {
+        gridSize = next;
+        updateGridOverlay();
+      }
+    });
+    shapeModeBanner.replaceChildren(label, addSideButton, gridToggle, gridSizeInput);
+    shapeModeBanner.hidden = false;
+  };
+
+  const exitShapeEditMode = () => {
+    if (shapeEditLayerNumber === null) return;
+    const element = getShapeEditElement();
+    element?.classList.remove("is-shape-editing");
+    shapeEditLayerNumber = null;
+    pointDragState = null;
+    updatePointHandles();
+    updateShapeModeBanner();
+    updateGridOverlay();
+    updateHandles(layersController.getSelectedLayer());
+  };
+
+  const enterShapeEditMode = (layerNumber) => {
+    if (shapeEditLayerNumber === layerNumber) return;
+    exitShapeEditMode();
+    const element = getGraphics()[layerNumber - 1];
+    if (!element || !POINT_EDITABLE_SHAPES.has(element.localName)) return;
+    shapeEditLayerNumber = layerNumber;
+    element.classList.add("is-shape-editing");
+    if (handles) handles.hidden = true;
+    updatePointHandles();
+    updateShapeModeBanner();
+    updateGridOverlay();
+  };
+
+  const onDoubleClick = (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest(":is(path, rect, circle, ellipse, line, polyline, polygon)")
+      : null;
+    if (!target) {
+      exitShapeEditMode();
+      return;
+    }
+    const layerNumber = getGraphics().indexOf(target) + 1;
+    if (!layerNumber) return;
+    event.preventDefault();
+    if (!POINT_EDITABLE_SHAPES.has(target.localName)) {
+      exitShapeEditMode();
+      return;
+    }
+    layersController.selectLayer?.(layerNumber);
+    enterShapeEditMode(layerNumber);
+  };
+
+  const onPointPointerDown = (event) => {
+    const handleEl = event.target instanceof Element ? event.target.closest(".asset-point-handle") : null;
+    if (!handleEl) return;
+    const element = getShapeEditElement();
+    const matrix = element && getShapeMatrix(element);
+    if (!element || !matrix) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { handleEl.setPointerCapture?.(event.pointerId); } catch { /* pointer already released */ }
+    handleEl.classList.add("is-active");
+    pointDragState = {
+      handleEl,
+      pointerId: event.pointerId,
+      index: Number(handleEl.dataset.pointIndex),
+      inverse: matrix.inverse(),
+      points: getShapePoints(element, shapeEditLayerNumber)
+    };
+  };
+
+  const onPointPointerMove = (event) => {
+    if (!pointDragState || event.pointerId !== pointDragState.pointerId) return;
+    const { inverse, index } = pointDragState;
+    const rawX = inverse.a * event.clientX + inverse.c * event.clientY + inverse.e;
+    const rawY = inverse.b * event.clientX + inverse.d * event.clientY + inverse.f;
+    const x = snapToGrid(rawX);
+    const y = snapToGrid(rawY);
+    const next = pointDragState.points.map((point, i) => (i === index ? { x, y } : point));
+    pointDragState.points = next;
+    const serialized = serializeSvgPoints(next);
+    updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs: { points: serialized } });
+    applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
+    updatePointHandles();
+  };
+
+  const onPointPointerUp = (event) => {
+    if (!pointDragState || event.pointerId !== pointDragState.pointerId) return;
+    try { pointDragState.handleEl.releasePointerCapture?.(event.pointerId); } catch { /* not captured */ }
+    pointDragState.handleEl.classList.remove("is-active");
+    pointDragState = null;
+  };
 
   const updateTooltip = (layerNumber) => {
-    updateHandles(layerNumber);
+    if (shapeEditLayerNumber !== null && layerNumber !== shapeEditLayerNumber) exitShapeEditMode();
+    if (shapeEditLayerNumber !== null) {
+      if (handles) handles.hidden = true;
+      updatePointHandles();
+      updateGridOverlay();
+      updateShapeModeBanner();
+    } else {
+      updateHandles(layerNumber);
+    }
     if (!tooltip) return;
     if (layerNumber === null || layerNumber === undefined) {
       tooltip.hidden = true;
@@ -951,6 +1260,11 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   };
 
   const onKeydown = (event) => {
+    if (event.key === "Escape" && shapeEditLayerNumber !== null) {
+      event.preventDefault();
+      exitShapeEditMode();
+      return;
+    }
     const layerNumber = layersController.getSelectedLayer();
     if (layerNumber === null || layerNumber === undefined || isTypingTarget(document.activeElement)) return;
     const deltas = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
@@ -1086,6 +1400,14 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   let groupResizeState = null;
   let rotateState = null;
   let pendingSelectInfo = null;
+  // Shape edit mode: when set, `points`/`d` vertex handles replace the
+  // bounding-box handles for a single polygon/polyline layer.
+  let shapeEditLayerNumber = null;
+  let pointDragState = null;
+  // Grid-snap helper for shape edit mode: gridEnabled toggles the faint
+  // overlay + point-drag snapping, gridSize is the spacing in SVG user units.
+  let gridEnabled = false;
+  let gridSize = 8;
 
   // Captures a selected element's current box in two related coordinate
   // frames: `base` is the pre-offset frame that per-element `resize` edits
@@ -1525,27 +1847,41 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   window.addEventListener("keydown", onKeydown);
   previewContainer.addEventListener("pointerdown", onPointerDown);
   handles?.addEventListener("pointerdown", onHandlePointerDown);
+  points?.addEventListener("pointerdown", onPointPointerDown);
+  root.addEventListener("dblclick", onDoubleClick);
   root.addEventListener("pointerover", onPointerOver);
   root.addEventListener("pointerout", onPointerOut);
   window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointermove", onPointPointerMove);
   window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointerup", onPointPointerUp);
   window.addEventListener("pointercancel", onPointerUp);
+  window.addEventListener("pointercancel", onPointPointerUp);
   window.addEventListener("resize", onWindowResize);
 
   return {
     updateTooltip,
     cleanup: () => {
+      exitShapeEditMode();
       window.removeEventListener("keydown", onKeydown);
       previewContainer.removeEventListener("pointerdown", onPointerDown);
       handles?.removeEventListener("pointerdown", onHandlePointerDown);
+      points?.removeEventListener("pointerdown", onPointPointerDown);
+      root.removeEventListener("dblclick", onDoubleClick);
       root.removeEventListener("pointerover", onPointerOver);
       root.removeEventListener("pointerout", onPointerOut);
       window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointermove", onPointPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointerup", onPointPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("pointercancel", onPointPointerUp);
       window.removeEventListener("resize", onWindowResize);
       if (tooltip) tooltip.hidden = true;
       if (handles) handles.hidden = true;
+      if (points) { points.hidden = true; points.replaceChildren(); }
+      if (shapeModeBanner) shapeModeBanner.hidden = true;
+      if (gridOverlay) gridOverlay.hidden = true;
       clearGuides();
     }
   };
@@ -1596,6 +1932,52 @@ function createSteppedNumberField({ value, step, ariaLabel, onChange }) {
   steppers.append(upButton, downButton);
   field.append(input, steppers);
   return { field, input };
+}
+
+// Editable field for path-like geometry attributes (`points` on polyline/polygon,
+// `d` on path). These aren't single numbers, so the stepped number field can't
+// represent them; a textarea keeps the full command/point list editable while
+// still committing through the same layer-edit pipeline.
+function createGeometryField({ value, ariaLabel, onChange }) {
+  const field = document.createElement("span");
+  field.className = "asset-layer-attr-field asset-layer-attr-field--geometry";
+  const input = document.createElement("textarea");
+  input.className = "asset-layer-attr-input asset-layer-attr-input--geometry";
+  input.rows = 3;
+  input.spellcheck = false;
+  input.value = value;
+  input.setAttribute("aria-label", ariaLabel);
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => event.stopPropagation());
+  input.addEventListener("input", () => {
+    const next = input.value.trim();
+    if (next) onChange(next);
+  });
+  field.appendChild(input);
+  return { field, input };
+}
+
+const GEOMETRY_ATTRIBUTES = new Set(["points", "d"]);
+
+// Shapes whose geometry is a flat list of vertices, so each point can be
+// exposed as an individually draggable handle in shape edit mode.
+const POINT_EDITABLE_SHAPES = new Set(["polygon", "polyline"]);
+
+function parseSvgPoints(value) {
+  const numbers = String(value || "")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number)
+    .filter(Number.isFinite);
+  const points = [];
+  for (let i = 0; i + 1 < numbers.length; i += 2) {
+    points.push({ x: numbers[i], y: numbers[i + 1] });
+  }
+  return points;
+}
+
+function serializeSvgPoints(points) {
+  return points.map(({ x, y }) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`).join(" ");
 }
 
 function renderAssetColorList(root, asset, onHighlight) {
@@ -1819,6 +2201,9 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     let focusedLayerNumber = null;
     const layerItems = new Map();
     const layerButtons = new Map();
+    // Geometry textareas keyed `${layerNumber}:${attrName}`, so on-canvas point
+    // dragging can push updated values back into the open detail editor.
+    const geometryInputs = new Map();
     const layerCheckboxes = new Map();
     const layerEdits = assetLayerEdits.get(asset.id) || new Map();
     const selection = assetLayerSelection(asset.id);
@@ -1906,6 +2291,10 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     controller.selectLayer = selectLayer;
     controller.getSelectedLayer = () => selectedLayerNumber;
     controller.getMultiSelection = () => [...multiSelection];
+    controller.syncGeometryInput = (layerNumber, name, value) => {
+      const input = geometryInputs.get(`${layerNumber}:${name}`);
+      if (input && input.value !== value) input.value = value;
+    };
     const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
     function renderElementRow(layer) {
       const item = document.createElement("li");
@@ -2208,7 +2597,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       const attributes = document.createElement("dl");
       attributes.className = "asset-layer-attributes";
       const currentAttrs = currentEdits.attrs || {};
-      for (const [name, value] of layer.attributes) {
+      for (const [name, value] of enumerateElementAttributes(layer.element, layer.attributes)) {
         const term = document.createElement("dt");
         term.textContent = name;
         const description = document.createElement("dd");
@@ -2245,6 +2634,29 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
             onChange: (next) => setOpacity(Math.min(1, Math.max(0, next)))
           });
           attrOpacityInput = input;
+          description.appendChild(field);
+        } else if (GEOMETRY_ATTRIBUTES.has(name)) {
+          const { field, input } = createGeometryField({
+            value: currentAttrs[name] ?? value,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: next } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          geometryInputs.set(`${layer.number}:${name}`, input);
+          description.appendChild(field);
+        } else if (SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(layer.element)?.includes(name)) {
+          const step = value.includes(".") ? "0.01" : "1";
+          const { field } = createSteppedNumberField({
+            value: currentAttrs[name] ?? value,
+            step,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
           description.appendChild(field);
         } else if (value !== "" && Number.isFinite(Number(value))) {
           const step = value.includes(".") ? "0.01" : "1";
@@ -2736,6 +3148,9 @@ function renderAssetDetail(assetId) {
   const primaryTooltip = document.getElementById("asset-primary-tooltip");
   const primaryHandles = document.getElementById("asset-primary-handles");
   const primaryGuides = document.getElementById("asset-primary-guides");
+  const primaryPoints = document.getElementById("asset-primary-points");
+  const primaryShapeMode = document.getElementById("asset-primary-shape-mode");
+  const primaryGrid = document.getElementById("asset-primary-grid");
   const primaryCanvas = document.getElementById("asset-primary-canvas");
   const primarySizeCaption = document.getElementById("asset-primary-size-caption");
   const previewSizeSelect = document.getElementById("asset-preview-size-select");
@@ -2823,7 +3238,7 @@ function renderAssetDetail(assetId) {
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
     (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
   );
-  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController);
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController, primaryPoints, primaryShapeMode, primaryGrid);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
   activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
