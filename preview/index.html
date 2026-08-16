@@ -140,6 +140,16 @@
                   <i data-lucide="grid-2x2" aria-hidden="true"></i>
                   Compare sizes
                 </button>
+                <button id="asset-grid-visibility-toggle" type="button" class="btn btn-sm" aria-pressed="false">
+                  Show grid
+                </button>
+                <button id="asset-grid-snap-toggle" type="button" class="btn btn-sm" aria-pressed="false">
+                  Snap to grid
+                </button>
+                <label class="asset-grid-size-control">
+                  <span>Grid spacing</span>
+                  <input id="asset-grid-size-input" type="number" min="1" step="1" value="8" aria-label="Grid spacing in SVG units">
+                </label>
               </div>
               <div id="asset-primary-canvas" class="asset-primary-canvas">
                 <div id="asset-primary-svg" class="asset-primary-svg" role="img" aria-label="Asset preview"></div>

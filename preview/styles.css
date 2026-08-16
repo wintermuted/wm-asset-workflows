@@ -920,6 +920,17 @@
   display: none;
 }
 
+.asset-grid-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.asset-grid-size-control input {
+  width: 4.5rem;
+}
+
 /* Dashed accent outline on the element being point-edited, so the active
    shape stays identifiable even when its handles overlap other elements. */
 .asset-primary-svg svg .is-shape-editing {
