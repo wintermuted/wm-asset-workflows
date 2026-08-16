@@ -3345,7 +3345,6 @@ function renderLogos(assets) {
 function renderAssetDetail(assetId) {
   const title = document.getElementById("asset-detail-title");
   const saveButton = document.getElementById("asset-save-button");
-  const meta = document.getElementById("asset-detail-meta");
   const deepLink = document.getElementById("asset-deep-link");
   const projectLink = document.getElementById("asset-project-link");
   const overview = document.getElementById("asset-detail-overview");
@@ -3382,7 +3381,7 @@ function renderAssetDetail(assetId) {
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
   const layerActions = document.getElementById("asset-layer-actions");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !saveButton || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || !viewBoxValue || !viewBoxEditor || !viewBoxForm || !viewBoxCancel || viewBoxInputs.some((input) => !input)) return;
+  if (!title || !saveButton || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || !viewBoxValue || !viewBoxEditor || !viewBoxForm || !viewBoxCancel || viewBoxInputs.some((input) => !input)) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -3404,7 +3403,6 @@ function renderAssetDetail(assetId) {
     activePrimaryLayerInteractionCleanup?.();
     activePrimaryLayerInteractionCleanup = null;
     title.textContent = "Asset not found";
-    meta.textContent = `No logo or glyph exists for id: ${assetId}`;
     deepLink.href = window.location.href;
     projectLink.href = "#logos";
     projectLink.setAttribute("aria-label", "Back to all assets");
@@ -3459,7 +3457,6 @@ function renderAssetDetail(assetId) {
     viewBoxEditor.hidden = false;
   };
   title.textContent = asset.label;
-  meta.textContent = `${asset.id} · ${asset.source} · ${projectName} · ${logoTypeForAsset(asset)}`;
   deepLink.href = window.location.href;
   deepLink.setAttribute("aria-label", `${asset.label} deep link`);
   projectLink.href = projectRouteHref(projectName);
