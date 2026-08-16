@@ -998,11 +998,18 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   const getShapeEditElement = () => {
     if (shapeEditLayerNumber === null) return null;
     const element = getGraphics()[shapeEditLayerNumber - 1];
-    if (!element || !element.isConnected || !POINT_EDITABLE_SHAPES.has(element.localName)) return null;
+    if (!element || !element.isConnected) return null;
     return element;
   };
 
   const getShapePoints = (element, layerNumber) => {
+    if (element.localName === "line") {
+      const edit = assetLayerEdits.get(asset.id)?.get(layerNumber)?.attrs || {};
+      return [
+        { x: Number(edit.x1 ?? element.getAttribute("x1") ?? 0), y: Number(edit.y1 ?? element.getAttribute("y1") ?? 0) },
+        { x: Number(edit.x2 ?? element.getAttribute("x2") ?? 0), y: Number(edit.y2 ?? element.getAttribute("y2") ?? 0) }
+      ];
+    }
     const edited = assetLayerEdits.get(asset.id)?.get(layerNumber)?.attrs?.points;
     return parseSvgPoints(edited ?? element.getAttribute("points"));
   };
@@ -1024,6 +1031,11 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       return;
     }
     const containerRect = previewContainer.getBoundingClientRect();
+    if (!POINT_EDITABLE_SHAPES.has(element.localName) && element.localName !== "line") {
+      points.hidden = true;
+      points.replaceChildren();
+      return;
+    }
     const shapePoints = getShapePoints(element, shapeEditLayerNumber);
     if (points.childElementCount !== shapePoints.length) {
       points.replaceChildren(...shapePoints.map((_, index) => {
@@ -1103,9 +1115,17 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const nextPoints = [...currentPoints];
     nextPoints.splice(longestIndex + 1, 0, midpoint);
     const serialized = serializeSvgPoints(nextPoints);
-    updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs: { points: serialized } });
+    const attrs = element.localName === "line"
+      ? (index === 0 ? { x1: String(x), y1: String(y) } : { x2: String(x), y2: String(y) })
+      : { points: serialized };
+    updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs });
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
-    layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
+    if (element.localName === "line") {
+      layersController.syncGeometryInput?.(shapeEditLayerNumber, index === 0 ? "x1" : "x2", String(x));
+      layersController.syncGeometryInput?.(shapeEditLayerNumber, index === 0 ? "y1" : "y2", String(y));
+    } else {
+      layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
+    }
     updatePointHandles();
   };
 
@@ -1118,18 +1138,32 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       return;
     }
     const label = document.createElement("span");
-    label.textContent = `Shape edit mode · Element ${shapeEditLayerNumber} (${element.localName}) — drag points, Esc to exit`;
-    const addSideButton = document.createElement("button");
-    addSideButton.type = "button";
-    addSideButton.className = "asset-shape-mode-add-side";
-    addSideButton.textContent = "+ Add side";
-    addSideButton.title = "Add a point on the longest edge";
-    addSideButton.addEventListener("pointerdown", (event) => event.stopPropagation());
-    addSideButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      addShapeEditSide();
-    });
-    shapeModeBanner.replaceChildren(label, addSideButton);
+    const modeHint = POINT_EDITABLE_SHAPES.has(element.localName)
+      ? "drag vertices"
+      : element.localName === "line"
+        ? "drag endpoints"
+        : "edit geometry in the panel";
+    label.textContent = `Shape edit mode · Element ${shapeEditLayerNumber} (${element.localName}) — ${modeHint}, Esc to exit`;
+    const controls = document.createElement("span");
+    controls.textContent = POINT_EDITABLE_SHAPES.has(element.localName)
+      ? "Drag vertices"
+      : element.localName === "line"
+        ? "Drag endpoints"
+        : "Use the element editor geometry controls";
+    if (element.localName === "polygon" || element.localName === "polyline") {
+      const addSideButton = document.createElement("button");
+      addSideButton.type = "button";
+      addSideButton.className = "asset-shape-mode-add-side";
+      addSideButton.textContent = "+ Add side";
+      addSideButton.title = "Add a point on the longest edge";
+      addSideButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      addSideButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addShapeEditSide();
+      });
+      controls.append(" ", addSideButton);
+    }
+    shapeModeBanner.replaceChildren(label, controls);
     shapeModeBanner.hidden = false;
   };
 
@@ -1149,10 +1183,10 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     if (shapeEditLayerNumber === layerNumber) return;
     exitShapeEditMode();
     const element = getGraphics()[layerNumber - 1];
-    if (!element || !POINT_EDITABLE_SHAPES.has(element.localName)) return;
+    if (!element) return;
     shapeEditLayerNumber = layerNumber;
     element.classList.add("is-shape-editing");
-    if (handles) handles.hidden = true;
+    if (handles) handles.hidden = !POINT_EDITABLE_SHAPES.has(element.localName) && element.localName !== "line";
     updatePointHandles();
     updateShapeModeBanner();
     updateGridOverlay();
@@ -1169,11 +1203,8 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const layerNumber = getGraphics().indexOf(target) + 1;
     if (!layerNumber) return;
     event.preventDefault();
-    if (!POINT_EDITABLE_SHAPES.has(target.localName)) {
-      exitShapeEditMode();
-      return;
-    }
     layersController.selectLayer?.(layerNumber);
+    layersController.openEditor?.(layerNumber);
     enterShapeEditMode(layerNumber);
   };
 
@@ -2404,6 +2435,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     let focusedLayerNumber = null;
     const layerItems = new Map();
     const layerButtons = new Map();
+    const layerEditButtons = new Map();
     // Geometry textareas keyed `${layerNumber}:${attrName}`, so on-canvas point
     // dragging can push updated values back into the open detail editor.
     const geometryInputs = new Map();
@@ -2494,6 +2526,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       syncHighlight();
     };
     controller.selectLayer = selectLayer;
+    controller.openEditor = (layerNumber) => layerEditButtons.get(layerNumber)?.click();
     controller.getSelectedLayer = () => selectedLayerNumber;
     controller.getMultiSelection = () => [...multiSelection];
     controller.syncGeometryInput = (layerNumber, name, value) => {
@@ -2915,6 +2948,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       item.appendChild(details);
       layerItems.set(layer.number, item);
       layerCheckboxes.set(layer.number, selectCheckbox);
+      layerEditButtons.set(layer.number, editButton);
       if (onHighlight) layerButtons.set(layer.number, number);
       return item;
     }
