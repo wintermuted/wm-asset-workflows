@@ -16,9 +16,14 @@ Agentic workflow app for building SVG logos and glyphs, authoring markdown-drive
 assets/svg/          SVG source files — source of truth, never overwritten by scripts
 specs/               Markdown specs with Mermaid blocks for the diagram lane
 manifests/assets.json  Asset catalog consumed by preview and generator scripts
-preview/             Static browser preview app (HTML/CSS/JS, uses @wintermuted/ui-theme)
-scripts/node/        Orchestration scripts: serve-preview, build-spec-index, capture-preview
-scripts/python/      Deterministic image generators (Pillow)
+packages/            Package-aligned source boundaries for the future monorepo
+packages/preview-app/ Browser preview application source
+packages/preview-server/ Preview HTTP server source
+packages/workflows/  Node workflow source and shared paths
+packages/image-generation/ Deterministic image generators (Pillow)
+preview/             Static browser entrypoint and compatibility shell
+scripts/node/        CLI compatibility entrypoints for package workflows/server
+scripts/python/      Python compatibility entrypoints for image generation
 outputs/png/         Generated PNG assets (git-ignored except .gitkeep)
 outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
 ```
@@ -135,3 +140,14 @@ lsof -ti :4178 | xargs kill -9
 - Mermaid blocks are for flow/architecture diagrams, not brand mark construction.
 - `outputs/` is treated as generated content — do not commit generated PNGs unless intentional.
 - `preview/spec-index.json` is also git-ignored (it is rebuilt from `specs/` on demand).
+
+## Modularization Direction
+
+The repository now uses package-aligned source boundaries while keeping the current runtime entrypoints and public commands stable:
+
+- `packages/preview-app/` owns the browser application source; `preview/app.js` remains a compatibility entrypoint.
+- `packages/preview-server/` owns the preview HTTP server; `scripts/node/serve-preview.mjs` remains its compatibility entrypoint.
+- `packages/workflows/` owns spec indexing, screenshot capture, and shared workflow paths.
+- `packages/image-generation/` owns the Pillow generators and palette analyzer.
+
+The root `package.json` declares `packages/*` as workspaces so these boundaries can gain independent package dependencies and scripts without another structural migration.

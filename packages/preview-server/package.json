@@ -1,0 +1,5 @@
+{
+  "name": "@wm-asset-workflows/preview-server",
+  "private": true,
+  "type": "module"
+}
