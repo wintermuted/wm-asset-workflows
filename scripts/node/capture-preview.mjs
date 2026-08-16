@@ -1,1 +1,1 @@
-import "../../packages/workflows/src/capture-preview.mjs";
+import "../../dist/packages/workflows/src/capture-preview.js";

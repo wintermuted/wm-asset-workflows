@@ -1,5 +1,7 @@
 {
   "name": "@wm-asset-workflows/workflows",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "main": "../../dist/packages/workflows/src/build-spec-index.js",
+  "types": "../../dist/packages/workflows/src/build-spec-index.d.ts"
 }

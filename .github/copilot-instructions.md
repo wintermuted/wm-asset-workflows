@@ -6,7 +6,8 @@ Standalone repo for SVG-first logo/glyph authoring, markdown-driven diagrams, de
 
 | Layer | Tool |
 |-------|------|
-| Preview/orchestration | Node.js 18+, ESM |
+| Monorepo orchestration | Nx, npm workspaces |
+| Preview/orchestration | TypeScript, Node.js 20.19+, ESM |
 | Image generation | Python 3.10+, Pillow |
 | Screenshot capture | Playwright (Chromium headless) |
 | Preview server | `node:http` (zero-dependency) |
@@ -15,7 +16,7 @@ Standalone repo for SVG-first logo/glyph authoring, markdown-driven diagrams, de
 ## Commands
 
 ```bash
-npm install                    # Install Node deps (first time)
+npm run install:deps           # Install Node deps, using the environment registry when configured
 pip install -r requirements.txt  # Install Python deps (first time)
 npx playwright install chromium  # Install browser for capture (first time)
 
@@ -46,11 +47,11 @@ If `gh auth status` does not list a `wintermuted` account, run `gh auth login --
 assets/svg/          SVG source files — source of truth, never overwritten by scripts
 specs/               Markdown specs with Mermaid blocks for diagram lane
 manifests/assets.json  Asset catalog consumed by preview and generator scripts
-packages/            Package-aligned source boundaries for the future monorepo
-packages/preview-app/ Browser preview application source
-packages/preview-server/ Preview HTTP server source
-packages/workflows/  Node workflow source and shared paths
-packages/image-generation/ Deterministic image generators
+packages/            Nx-managed TypeScript package boundaries
+packages/preview-app/ TypeScript browser preview application source
+packages/preview-server/ TypeScript preview HTTP server source
+packages/workflows/  TypeScript workflow source and shared paths
+packages/image-generation/ TypeScript CLI and deterministic Pillow generators
 preview/             Static browser entrypoint and compatibility shell
 scripts/node/        CLI compatibility entrypoints
 scripts/python/      Python compatibility entrypoints

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, access, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { readManifest, writeManifest } from "./manifest.mjs";
+import { readManifest, writeManifest } from "./manifest.js";
 
 export function slugifyProjectName(name) {
   return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");

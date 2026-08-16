@@ -1,5 +1,6 @@
 {
   "name": "@wm-asset-workflows/preview-app",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "main": "../../preview/app.js"
 }

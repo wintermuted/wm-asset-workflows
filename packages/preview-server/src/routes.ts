@@ -1,6 +1,6 @@
-import { scaffoldProject, renameProject } from "./scaffolding.mjs";
-import { uploadGroundingImage, updateProjectColor, updateGroundingSource } from "./grounding.mjs";
-import { serveStaticFile } from "./config.mjs";
+import { scaffoldProject, renameProject } from "./scaffolding.js";
+import { uploadGroundingImage, updateProjectColor, updateGroundingSource } from "./grounding.js";
+import { serveStaticFile } from "./config.js";
 
 async function readRequestJson(req) {
   let body = "";

@@ -3,17 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "workspaces": [
     "packages/*"
   ],
   "description": "Agentic Icon Builder for SVG-first logo and glyph workflows, previews, and exports.",
   "scripts": {
-    "preview": "npm run ensure:deps && npm run build:specs && node scripts/node/serve-preview.mjs",
+    "nx": "nx",
+    "graph": "nx graph",
+    "build": "nx run-many -t build",
+    "install:deps": "node scripts/node/install-deps.mjs",
+    "preview": "npm run ensure:deps && nx run preview-server:serve",
     "ensure:deps": "node scripts/node/ensure-deps.mjs",
-    "build:specs": "node scripts/node/build-spec-index.mjs",
-    "generate:png": "python3 scripts/python/generate_images.py",
-    "capture": "node scripts/node/capture-preview.mjs",
-    "workflow:logo": "npm run build:specs && npm run generate:png && npm run capture",
+    "build:specs": "nx run workflows:build-specs",
+    "generate:png": "nx run image-generation:generate-png",
+    "capture": "nx run workflows:capture",
+    "workflow:logo": "nx run workflows:logo",
     "ui-theme:link-local": "cd ../wintermuted-ui-theme && npm link && cd - && npm link @wintermuted/ui-theme",
     "ui-theme:unlink-local": "npm unlink --no-save @wintermuted/ui-theme && npm install"
   },
@@ -22,6 +29,11 @@
     "lucide": "^0.577.0"
   },
   "devDependencies": {
-    "playwright": "^1.54.0"
+    "@nx/js": "^21.4.1",
+    "@types/node": "^20.19.11",
+    "esbuild": "^0.25.9",
+    "nx": "^21.4.1",
+    "playwright": "^1.54.0",
+    "typescript": "^5.8.3"
   }
 }

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { environmentRegistryArgs } from "./npm-registry.mjs";
 
 const root = process.cwd();
 
@@ -9,6 +10,8 @@ const root = process.cwd();
 // so a missing install shows up as an unthemed page rather than an obvious error.
 const REQUIRED_PATHS = [
   "node_modules",
+  join("node_modules", ".bin", process.platform === "win32" ? "nx.cmd" : "nx"),
+  join("node_modules", ".bin", process.platform === "win32" ? "esbuild.cmd" : "esbuild"),
   join("node_modules", "@wintermuted", "ui-theme", "index.css")
 ];
 
@@ -17,7 +20,12 @@ if (missing.length === 0) process.exit(0);
 
 console.log(`[ensure-deps] missing ${missing.join(", ")} — running npm install`);
 
-const result = spawnSync("npm", ["install", "--no-audit", "--no-fund"], {
+const result = spawnSync("npm", [
+  "install",
+  "--no-audit",
+  "--no-fund",
+  ...environmentRegistryArgs()
+], {
   cwd: root,
   stdio: "inherit",
   shell: process.platform === "win32"

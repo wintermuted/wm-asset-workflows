@@ -1,5 +1,7 @@
 {
   "name": "@wm-asset-workflows/preview-server",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "main": "../../dist/packages/preview-server/src/index.js",
+  "types": "../../dist/packages/preview-server/src/index.d.ts"
 }

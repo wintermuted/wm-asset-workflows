@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { chromium } from "playwright";
-import { paths, root } from "./workflow-paths.mjs";
+import { paths, root } from "./workflow-paths.js";
 
 const port = 4178;
 const outDir = paths.screenshots;
@@ -21,7 +21,7 @@ async function captureTheme(page, theme, outputPath) {
 async function run() {
   await mkdir(outDir, { recursive: true });
 
-  const server = spawn("node", ["scripts/node/serve-preview.mjs", "--port", String(port), "--quiet"], {
+  const server = spawn("node", ["dist/packages/preview-server/src/index.js", "--port", String(port), "--quiet"], {
     cwd: root,
     stdio: "ignore"
   });

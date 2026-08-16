@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { paths } from "./workflow-paths.mjs";
+import { paths } from "./workflow-paths.js";
 
 function extractTitle(content, fallback) {
   const match = content.match(/^#\s+(.+)$/m);

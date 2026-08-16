@@ -16,12 +16,12 @@ Agentic workflow app for building SVG logos and glyphs, authoring markdown-drive
 assets/svg/          SVG source files — source of truth, never overwritten by scripts
 specs/               Markdown specs with Mermaid blocks for the diagram lane
 manifests/assets.json  Asset catalog consumed by preview and generator scripts
-packages/            Package-aligned source boundaries for the future monorepo
-packages/preview-app/ Browser preview application source
-packages/preview-server/ Preview HTTP server source
-packages/workflows/  Node workflow source and shared paths
-packages/image-generation/ Deterministic image generators (Pillow)
-preview/             Static browser entrypoint and compatibility shell
+packages/            Nx-managed TypeScript package boundaries
+packages/preview-app/ TypeScript browser application source
+packages/preview-server/ TypeScript preview HTTP server
+packages/workflows/  TypeScript workflow CLIs and shared paths
+packages/image-generation/ TypeScript CLI around deterministic Pillow generators
+preview/             Static browser output and preview assets
 scripts/node/        CLI compatibility entrypoints for package workflows/server
 scripts/python/      Python compatibility entrypoints for image generation
 outputs/png/         Generated PNG assets (git-ignored except .gitkeep)
@@ -30,12 +30,12 @@ outputs/screenshots/ Browser capture outputs (git-ignored except .gitkeep)
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+
 - Python 3.10+
 - Playwright Chromium (one-time install)
 
 ```bash
-npm install
+npm run install:deps              # Uses the environment's internal registry when configured
 pip install -r requirements.txt
 npx playwright install chromium   # one-time browser install
 ```
@@ -48,6 +48,8 @@ npm run preview         # Install deps if needed, build the spec index, then ser
 npm run generate:png    # Generate deterministic PNG assets via Pillow
 npm run capture         # Capture light/dark screenshots using Playwright
 npm run workflow:logo   # Run build:specs + generate:png + capture in sequence
+npm run graph           # Explore the Nx project and task graph
+npm run build           # Build every package through Nx
 ```
 
 ## Prompt-Driven Authoring
@@ -125,7 +127,7 @@ npm run preview
 To use a different port:
 
 ```bash
-node scripts/node/serve-preview.mjs --port 5000
+npx nx run preview-server:serve -- --port 5000
 ```
 
 To stop the server, kill the process holding the port:
@@ -141,13 +143,13 @@ lsof -ti :4178 | xargs kill -9
 - `outputs/` is treated as generated content — do not commit generated PNGs unless intentional.
 - `preview/spec-index.json` is also git-ignored (it is rebuilt from `specs/` on demand).
 
-## Modularization Direction
+## Nx Workspace
 
-The repository now uses package-aligned source boundaries while keeping the current runtime entrypoints and public commands stable:
+The npm workspace is orchestrated by Nx. Each package has a `project.json` with independently cacheable targets, while the existing root commands remain stable:
 
-- `packages/preview-app/` owns the browser application source; `preview/app.js` remains a compatibility entrypoint.
-- `packages/preview-server/` owns the preview HTTP server; `scripts/node/serve-preview.mjs` remains its compatibility entrypoint.
-- `packages/workflows/` owns spec indexing, screenshot capture, and shared workflow paths.
-- `packages/image-generation/` owns the Pillow generators and palette analyzer.
+- `packages/preview-app/` bundles TypeScript browser source to `preview/app.js`.
+- `packages/preview-server/` compiles the TypeScript preview HTTP server to `dist/packages/preview-server/`.
+- `packages/workflows/` compiles the spec indexing and screenshot capture CLIs.
+- `packages/image-generation/` exposes a TypeScript CLI and keeps Pillow scripts as the rendering implementation.
 
-The root `package.json` declares `packages/*` as workspaces so these boundaries can gain independent package dependencies and scripts without another structural migration.
+Use `npx nx show projects` to list projects, `npx nx show project <name>` to inspect targets, and `npx nx run <project>:<target>` to run one package task.
