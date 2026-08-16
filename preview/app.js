@@ -1679,6 +1679,12 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
           right = centerX + width / 2;
         }
       }
+      if (gridEnabled) {
+        if (handle.includes("e")) right = Math.max(left + minSize, snapToGrid(right));
+        if (handle.includes("w")) left = Math.min(right - minSize, snapToGrid(left));
+        if (handle.includes("s")) bottom = Math.max(top + minSize, snapToGrid(bottom));
+        if (handle.includes("n")) top = Math.min(bottom - minSize, snapToGrid(top));
+      }
       const applyResize = (box) => {
         updateAssetLayerEdits(asset.id, layerNumber, {
           resize: {
@@ -1770,6 +1776,14 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         if (xSnap) { deltaX += xSnap.delta * dragState.scaleX; showGuide("v", xSnap.screenPos); }
         if (ySnap) { deltaY += ySnap.delta * dragState.scaleY; showGuide("h", ySnap.screenPos); }
         if (xSnap || ySnap) applyGroupOffset(deltaX, deltaY);
+      }
+    }
+    if (gridEnabled) {
+      const primaryBase = dragState.bases.get(dragState.primaryLayerNumber);
+      if (primaryBase) {
+        deltaX = snapToGrid(primaryBase.offsetX + deltaX) - primaryBase.offsetX;
+        deltaY = snapToGrid(primaryBase.offsetY + deltaY) - primaryBase.offsetY;
+        applyGroupOffset(deltaX, deltaY);
       }
     }
     updateTooltip(dragState.primaryLayerNumber);
