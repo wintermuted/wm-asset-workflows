@@ -1024,6 +1024,30 @@
   border-color: var(--wm-color-accent);
 }
 
+.asset-accessibility-editor {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.asset-accessibility-editor label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--wm-color-text-muted);
+  font-size: 0.75rem;
+}
+
+.asset-accessibility-editor input,
+.asset-accessibility-editor textarea {
+  width: 100%;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.35rem 0.45rem;
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  font: inherit;
+}
+
 /* Dashed accent outline on the element being point-edited, so the active
    shape stays identifiable even when its handles overlap other elements. */
 .asset-primary-svg svg .is-shape-editing {
