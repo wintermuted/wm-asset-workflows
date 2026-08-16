@@ -1,0 +1,82 @@
+/* Stat card: compact metric display. Used in dashboards and summaries. */
+
+.stats-grid,
+.wm-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card,
+.wm-stat-card {
+  background: var(--wm-color-surface);
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-base, 8px);
+  padding: 1rem;
+  text-align: center;
+}
+
+.stat-value,
+.wm-stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--wm-color-accent);
+}
+
+.stat-label,
+.wm-stat-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--wm-color-text-muted);
+  margin-top: 0.35rem;
+}
+
+/* Semantic tonal variants */
+
+.stat-card-success,
+.wm-stat-card-success {
+  background: var(--wm-color-success-soft);
+  border-color: var(--wm-color-success-border);
+}
+
+.stat-card-success .stat-value,
+.wm-stat-card-success .wm-stat-value {
+  color: var(--wm-color-success);
+}
+
+.stat-card-warning,
+.wm-stat-card-warning {
+  background: var(--wm-color-warning-soft);
+  border-color: var(--wm-color-warning-border);
+}
+
+.stat-card-warning .stat-value,
+.wm-stat-card-warning .wm-stat-value {
+  color: var(--wm-color-warning);
+}
+
+.stat-card-danger,
+.wm-stat-card-danger {
+  background: var(--wm-color-danger-soft);
+  border-color: var(--wm-color-danger-border);
+}
+
+.stat-card-danger .stat-value,
+.wm-stat-card-danger .wm-stat-value {
+  color: var(--wm-color-danger);
+}
+
+/* Accent-left-border variants (used on card rows) */
+
+.card-accent-success,
+.wm-card-accent-success {
+  border-left: 4px solid var(--wm-color-success);
+}
+
+.card-accent-warning,
+.wm-card-accent-warning {
+  border-left: 4px solid var(--wm-color-warning);
+}

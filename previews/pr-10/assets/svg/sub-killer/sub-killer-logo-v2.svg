@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Sub Killer Logo V2</title>
+  <desc id="desc">Angular wave badge with receipt tab and strike mark.</desc>
+  <rect width="128" height="128" rx="28" fill="#101828"/>
+  <path fill="#5EEAD4" d="M20 82C28 59 45 42 68 36C83 32 97 34 108 42C100 60 86 76 68 86C51 95 34 94 20 82Z"/>
+  <path fill="#101828" d="M29 78C40 63 53 54 67 50C76 48 84 49 92 53C83 65 72 74 60 80C50 85 40 84 29 78Z"/>
+  <rect x="74" y="22" width="26" height="18" rx="4" fill="#F8FAFC"/>
+  <rect x="77" y="30" width="20" height="3" rx="1.5" fill="#818CF8"/>
+  <path fill="#C084FC" d="M26 96L92 30L98 36L32 102Z"/>
+</svg>
