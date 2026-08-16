@@ -932,10 +932,11 @@
 }
 
 .asset-viewbox-control {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 0.35rem;
-  margin: 0;
+  margin: 0.75rem 0 0;
   padding: 0.15rem 0.35rem;
   border: 1px solid var(--wm-border-subtle);
   border-radius: 0.35rem;
@@ -943,6 +944,7 @@
 }
 
 .asset-viewbox-control legend {
+  grid-column: 1 / -1;
   padding: 0 0.2rem;
   font-size: 0.7rem;
 }
