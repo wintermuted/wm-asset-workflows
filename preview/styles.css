@@ -953,6 +953,48 @@
   width: 1.75rem;
   height: 1.75rem;
   padding: 0;
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-viewbox-edit:hover,
+.asset-viewbox-edit:focus-visible,
+.asset-accessibility-edit:hover,
+.asset-accessibility-edit:focus-visible {
+  border-color: var(--wm-color-accent);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-solid);
+}
+
+.asset-accessibility-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+}
+
+.asset-accessibility-summary code {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-accessibility-edit {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
 }
 
 .asset-viewbox-editor {
@@ -1025,9 +1067,28 @@
 }
 
 .asset-accessibility-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0.75rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: 0.4rem;
+  background: var(--wm-color-surface-solid);
+  color: var(--wm-color-text);
+  box-shadow: var(--wm-shadow-md);
+}
+
+.asset-accessibility-editor[hidden] {
+  display: none;
+}
+
+.asset-accessibility-editor form {
   display: grid;
   gap: 0.55rem;
-  margin-bottom: 0.75rem;
+}
+
+.asset-accessibility-editor strong {
+  font-size: 0.85rem;
 }
 
 .asset-accessibility-editor label {
@@ -1046,6 +1107,28 @@
   color: var(--wm-color-text);
   background: var(--wm-color-surface-strong);
   font: inherit;
+}
+
+.asset-accessibility-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.asset-accessibility-actions button {
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.35rem 0.65rem;
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-accessibility-actions button[type="submit"] {
+  border-color: var(--wm-color-accent);
+  color: var(--wm-color-text-inverse, #fff);
+  background: var(--wm-color-accent);
 }
 
 /* Dashed accent outline on the element being point-edited, so the active
