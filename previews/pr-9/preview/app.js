@@ -2100,31 +2100,72 @@ function renderAssetDiagnostics(root, asset, onAccessibilityChange) {
       description: data.description === "Not defined" ? "" : data.description
     };
     assetAccessibilityEdits.set(asset.id, accessibility);
+    const body = root.parentElement;
+    body?.querySelectorAll("[data-accessibility-editor]").forEach((element) => element.remove());
+    const summary = document.createElement("div");
+    summary.className = "asset-accessibility-summary";
+    const summaryLabel = document.createElement("span");
+    summaryLabel.textContent = "Accessibility";
+    const summaryValue = document.createElement("code");
+    summaryValue.textContent = accessibility.title || "No title or description";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "asset-accessibility-edit";
+    editButton.setAttribute("aria-label", "Edit accessible title and description");
+    editButton.title = "Edit accessible title and description";
+    editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+    summary.append(summaryLabel, summaryValue, editButton);
+
     const editor = document.createElement("div");
     editor.className = "asset-accessibility-editor";
+    editor.dataset.accessibilityEditor = "";
+    editor.hidden = true;
+    const form = document.createElement("form");
+    const heading = document.createElement("strong");
+    heading.textContent = "Edit accessibility";
     const titleLabel = document.createElement("label");
     titleLabel.textContent = "Accessible title";
     const titleInput = document.createElement("input");
     titleInput.type = "text";
-    titleInput.value = accessibility.title;
     titleInput.setAttribute("aria-label", "Accessible title");
     titleLabel.appendChild(titleInput);
     const descriptionLabel = document.createElement("label");
     descriptionLabel.textContent = "Description";
     const descriptionInput = document.createElement("textarea");
     descriptionInput.rows = 2;
-    descriptionInput.value = accessibility.description;
     descriptionInput.setAttribute("aria-label", "Accessible description");
     descriptionLabel.appendChild(descriptionInput);
-    const updateAccessibility = () => {
+    const actions = document.createElement("div");
+    actions.className = "asset-accessibility-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+    const applyButton = document.createElement("button");
+    applyButton.type = "submit";
+    applyButton.textContent = "Apply";
+    actions.append(cancelButton, applyButton);
+    form.append(heading, titleLabel, descriptionLabel, actions);
+    editor.appendChild(form);
+    body?.insertBefore(summary, root);
+    body?.insertBefore(editor, root);
+
+    const openEditor = () => {
+      titleInput.value = accessibility.title;
+      descriptionInput.value = accessibility.description;
+      editor.hidden = false;
+      titleInput.focus();
+    };
+    const closeEditor = () => { editor.hidden = true; };
+    editButton.addEventListener("click", openEditor);
+    cancelButton.addEventListener("click", closeEditor);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
       const next = { title: titleInput.value.trim(), description: descriptionInput.value.trim() };
       assetAccessibilityEdits.set(asset.id, next);
+      summaryValue.textContent = next.title || "No title or description";
       onAccessibilityChange?.(next);
-    };
-    titleInput.addEventListener("input", updateAccessibility);
-    descriptionInput.addEventListener("input", updateAccessibility);
-    editor.append(titleLabel, descriptionLabel);
-    root.appendChild(editor);
+      closeEditor();
+    });
     const diagnostics = [
       ["Source size", `${data.width} × ${data.height}`],
       ["Elements", `${data.paintLayerCount} primitives`],
@@ -2145,6 +2186,7 @@ function renderAssetDiagnostics(root, asset, onAccessibilityChange) {
       root.appendChild(term);
       root.appendChild(description);
     }
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Diagnostics unavailable";
   });
