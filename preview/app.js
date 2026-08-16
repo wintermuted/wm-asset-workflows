@@ -124,6 +124,7 @@ const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
 const assetViewBoxEdits = new Map();
 const assetAccessibilityEdits = new Map();
+const assetSourceSizeEdits = new Map();
 const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
 // contains), so the panel can auto-focus that group's name field once rendered.
@@ -722,6 +723,11 @@ function renderAssetPrimarySvg(root, asset, size = "fit") {
     svg.setAttribute("focusable", "false");
     const viewBox = assetViewBoxEdits.get(asset.id);
     if (viewBox) svg.setAttribute("viewBox", viewBox.join(" "));
+    const sourceSize = assetSourceSizeEdits.get(asset.id);
+    if (sourceSize) {
+      svg.setAttribute("width", String(sourceSize.width));
+      svg.setAttribute("height", String(sourceSize.height));
+    }
     applyAssetAccessibility(svg, asset.id);
     applyAssetLayerEdits(svg, asset.id);
     root.replaceChildren(svg);
@@ -2088,7 +2094,84 @@ function renderStaticAssetColorList(root, colors, emptyMessage) {
   }
 }
 
-function renderAssetDiagnostics(root, asset, onAccessibilityChange) {
+function renderAssetSourceSizeEditor(body, root, asset, data, onChange) {
+  const sourceViewBox = parseSvgViewBox(data.viewBox);
+  const sourceSize = assetSourceSizeEdits.get(asset.id) || {
+    width: Number.isFinite(Number(data.width)) ? Number(data.width) : sourceViewBox?.[2],
+    height: Number.isFinite(Number(data.height)) ? Number(data.height) : sourceViewBox?.[3]
+  };
+  assetSourceSizeEdits.set(asset.id, sourceSize);
+  const summary = document.createElement("div");
+  summary.className = "asset-accessibility-summary";
+  summary.dataset.sourceSizeSummary = "";
+  const label = document.createElement("span");
+  label.textContent = "Source size";
+  const value = document.createElement("code");
+  value.textContent = Number.isFinite(sourceSize.width) && Number.isFinite(sourceSize.height)
+    ? `${sourceSize.width} × ${sourceSize.height}`
+    : "Not defined";
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "asset-accessibility-edit";
+  editButton.setAttribute("aria-label", "Edit source size");
+  editButton.title = "Edit source size";
+  editButton.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>';
+  summary.append(label, value, editButton);
+
+  const editor = document.createElement("div");
+  editor.className = "asset-accessibility-editor";
+  editor.dataset.sourceSizeEditor = "";
+  editor.hidden = true;
+  const form = document.createElement("form");
+  const heading = document.createElement("strong");
+  heading.textContent = "Edit source size";
+  const widthInput = document.createElement("input");
+  const heightInput = document.createElement("input");
+  for (const [input, name] of [[widthInput, "Source width"], [heightInput, "Source height"]]) {
+    input.type = "number";
+    input.min = "0.01";
+    input.step = "0.01";
+    input.required = true;
+    input.setAttribute("aria-label", name);
+  }
+  const widthLabel = document.createElement("label");
+  widthLabel.textContent = "Width";
+  widthLabel.appendChild(widthInput);
+  const heightLabel = document.createElement("label");
+  heightLabel.textContent = "Height";
+  heightLabel.appendChild(heightInput);
+  const actions = document.createElement("div");
+  actions.className = "asset-accessibility-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  const apply = document.createElement("button");
+  apply.type = "submit";
+  apply.textContent = "Apply";
+  actions.append(cancel, apply);
+  form.append(heading, widthLabel, heightLabel, actions);
+  editor.appendChild(form);
+  body.insertBefore(summary, root);
+  body.insertBefore(editor, root);
+  editButton.addEventListener("click", () => {
+    widthInput.value = Number.isFinite(sourceSize.width) ? String(sourceSize.width) : "";
+    heightInput.value = Number.isFinite(sourceSize.height) ? String(sourceSize.height) : "";
+    editor.hidden = false;
+    widthInput.focus();
+  });
+  cancel.addEventListener("click", () => { editor.hidden = true; });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const next = { width: Number(widthInput.value), height: Number(heightInput.value) };
+    assetSourceSizeEdits.set(asset.id, next);
+    value.textContent = `${next.width} × ${next.height}`;
+    onChange?.(next);
+    editor.hidden = true;
+  });
+}
+
+function renderAssetDiagnostics(root, asset, onAccessibilityChange, onSourceSizeChange) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
 
@@ -2102,6 +2185,8 @@ function renderAssetDiagnostics(root, asset, onAccessibilityChange) {
     assetAccessibilityEdits.set(asset.id, accessibility);
     const body = root.parentElement;
     body?.querySelectorAll("[data-accessibility-editor]").forEach((element) => element.remove());
+    body?.querySelectorAll("[data-source-size-editor], [data-source-size-summary]").forEach((element) => element.remove());
+    if (body) renderAssetSourceSizeEditor(body, root, asset, data, onSourceSizeChange);
     const summary = document.createElement("div");
     summary.className = "asset-accessibility-summary";
     const summaryLabel = document.createElement("span");
@@ -2167,7 +2252,6 @@ function renderAssetDiagnostics(root, asset, onAccessibilityChange) {
       closeEditor();
     });
     const diagnostics = [
-      ["Source size", `${data.width} × ${data.height}`],
       ["Elements", `${data.paintLayerCount} primitives`],
       ["Element order", "DOM order, bottom → top"],
       ["Topmost element", data.topmostLayer],
@@ -3414,6 +3498,13 @@ function renderAssetDetail(assetId) {
   customColorInput.onchange = addCustomColor;
   renderAssetDiagnostics(diagnostics, asset, () => {
     applyAssetAccessibility(primarySvg.querySelector("svg"), asset.id);
+  }, () => {
+    const svg = primarySvg.querySelector("svg");
+    const sourceSize = assetSourceSizeEdits.get(asset.id);
+    if (svg && sourceSize) {
+      svg.setAttribute("width", String(sourceSize.width));
+      svg.setAttribute("height", String(sourceSize.height));
+    }
   });
 
   const showCanvasSize = (size) => {
