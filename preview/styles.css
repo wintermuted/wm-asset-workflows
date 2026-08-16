@@ -931,32 +931,62 @@
   width: 4.5rem;
 }
 
-.asset-viewbox-control {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.asset-viewbox-summary {
+  display: flex;
   align-items: center;
   gap: 0.35rem;
   margin: 0.75rem 0 0;
-  padding: 0.15rem 0.35rem;
-  border: 1px solid var(--wm-border-subtle);
-  border-radius: 0.35rem;
   font-size: 0.75rem;
 }
 
-.asset-viewbox-control legend {
-  grid-column: 1 / -1;
-  padding: 0 0.2rem;
-  font-size: 0.7rem;
+.asset-viewbox-summary code {
+  flex: 1;
 }
 
-.asset-viewbox-control label {
-  display: inline-flex;
+.asset-viewbox-edit {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+}
+
+.asset-viewbox-editor {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid var(--wm-border-subtle);
+  border-radius: 0.4rem;
+  background: var(--wm-surface);
+  color: var(--wm-text);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 18%);
+}
+
+.asset-viewbox-editor form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.asset-viewbox-editor strong,
+.asset-viewbox-actions {
+  grid-column: 1 / -1;
+}
+
+.asset-viewbox-editor label {
+  display: flex;
   align-items: center;
   gap: 0.15rem;
 }
 
-.asset-viewbox-control input {
-  width: 3.75rem;
+.asset-viewbox-editor input {
+  width: 100%;
+}
+
+.asset-viewbox-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
 }
 
 /* Dashed accent outline on the element being point-edited, so the active

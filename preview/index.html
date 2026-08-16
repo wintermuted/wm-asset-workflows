@@ -128,13 +128,26 @@
                   </summary>
                   <div class="asset-detail-disclosure-body" aria-labelledby="asset-detail-diagnostics-heading">
                     <dl id="asset-detail-diagnostics"></dl>
-                    <fieldset class="asset-viewbox-control">
-                      <legend>ViewBox</legend>
-                      <label>X <input id="asset-viewbox-x" type="number" step="0.01" aria-label="ViewBox X"></label>
-                      <label>Y <input id="asset-viewbox-y" type="number" step="0.01" aria-label="ViewBox Y"></label>
-                      <label>W <input id="asset-viewbox-width" type="number" min="0.01" step="0.01" aria-label="ViewBox width"></label>
-                      <label>H <input id="asset-viewbox-height" type="number" min="0.01" step="0.01" aria-label="ViewBox height"></label>
-                    </fieldset>
+                    <div class="asset-viewbox-summary">
+                      <span>ViewBox</span>
+                      <code id="asset-viewbox-value">Loading...</code>
+                      <button id="asset-viewbox-edit" type="button" class="asset-viewbox-edit" popovertarget="asset-viewbox-editor" aria-label="Edit ViewBox" title="Edit ViewBox">
+                        <i data-lucide="pencil" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                    <div id="asset-viewbox-editor" class="asset-viewbox-editor" popover>
+                      <form id="asset-viewbox-form">
+                        <strong>Edit ViewBox</strong>
+                        <label>X <input id="asset-viewbox-x" type="number" step="0.01" aria-label="ViewBox X"></label>
+                        <label>Y <input id="asset-viewbox-y" type="number" step="0.01" aria-label="ViewBox Y"></label>
+                        <label>W <input id="asset-viewbox-width" type="number" min="0.01" step="0.01" aria-label="ViewBox width"></label>
+                        <label>H <input id="asset-viewbox-height" type="number" min="0.01" step="0.01" aria-label="ViewBox height"></label>
+                        <div class="asset-viewbox-actions">
+                          <button type="button" id="asset-viewbox-cancel">Cancel</button>
+                          <button type="submit">Apply</button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 </details>
               </div>
