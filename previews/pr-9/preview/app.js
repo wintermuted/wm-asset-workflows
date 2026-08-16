@@ -836,7 +836,7 @@ function positionPrimaryTooltip(tooltip, container, element) {
 // sync. Returns `{ updateTooltip, cleanup }`; callers must invoke the
 // previous cleanup before wiring up a new asset (renderAssetDetail re-runs
 // per view).
-function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController, points, shapeModeBanner, gridOverlay) {
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController, points, shapeModeBanner, gridOverlay, gridVisibilityToggle, gridSnapToggle, gridSizeInput) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
@@ -998,11 +998,11 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
 
   const updateGridOverlay = () => {
     if (!gridOverlay) return;
-    if (!gridEnabled || shapeEditLayerNumber === null) {
+    if (!gridVisible) {
       gridOverlay.hidden = true;
       return;
     }
-    const element = getShapeEditElement();
+    const element = getShapeEditElement() || root.querySelector("svg");
     const matrix = element && getShapeMatrix(element);
     if (!matrix) {
       gridOverlay.hidden = true;
@@ -1079,38 +1079,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       event.stopPropagation();
       addShapeEditSide();
     });
-    const gridToggle = document.createElement("button");
-    gridToggle.type = "button";
-    gridToggle.className = "asset-shape-mode-grid-toggle";
-    gridToggle.textContent = "Snap to grid";
-    gridToggle.title = "Toggle a grid overlay and snap dragged points to it";
-    gridToggle.setAttribute("aria-pressed", String(gridEnabled));
-    gridToggle.addEventListener("pointerdown", (event) => event.stopPropagation());
-    gridToggle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      gridEnabled = !gridEnabled;
-      updateShapeModeBanner();
-      updateGridOverlay();
-    });
-    const gridSizeInput = document.createElement("input");
-    gridSizeInput.type = "number";
-    gridSizeInput.min = "1";
-    gridSizeInput.step = "1";
-    gridSizeInput.value = String(gridSize);
-    gridSizeInput.className = "asset-shape-mode-grid-size";
-    gridSizeInput.title = "Grid spacing (SVG units)";
-    gridSizeInput.setAttribute("aria-label", "Grid spacing in SVG units");
-    gridSizeInput.addEventListener("pointerdown", (event) => event.stopPropagation());
-    gridSizeInput.addEventListener("click", (event) => event.stopPropagation());
-    gridSizeInput.addEventListener("keydown", (event) => event.stopPropagation());
-    gridSizeInput.addEventListener("input", () => {
-      const next = Number(gridSizeInput.value);
-      if (Number.isFinite(next) && next > 0) {
-        gridSize = next;
-        updateGridOverlay();
-      }
-    });
-    shapeModeBanner.replaceChildren(label, addSideButton, gridToggle, gridSizeInput);
+    shapeModeBanner.replaceChildren(label, addSideButton);
     shapeModeBanner.hidden = false;
   };
 
@@ -1404,8 +1373,8 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   // bounding-box handles for a single polygon/polyline layer.
   let shapeEditLayerNumber = null;
   let pointDragState = null;
-  // Grid-snap helper for shape edit mode: gridEnabled toggles the faint
-  // overlay + point-drag snapping, gridSize is the spacing in SVG user units.
+  // Grid visibility and snapping are independent canvas controls.
+  let gridVisible = false;
   let gridEnabled = false;
   let gridSize = 8;
 
@@ -1858,6 +1827,26 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   window.addEventListener("pointercancel", onPointerUp);
   window.addEventListener("pointercancel", onPointPointerUp);
   window.addEventListener("resize", onWindowResize);
+  const onGridVisibilityToggle = () => {
+    gridVisible = !gridVisible;
+    gridVisibilityToggle?.setAttribute("aria-pressed", String(gridVisible));
+    if (gridVisibilityToggle) gridVisibilityToggle.textContent = gridVisible ? "Hide grid" : "Show grid";
+    updateGridOverlay();
+  };
+  const onGridSnapToggle = () => {
+    gridEnabled = !gridEnabled;
+    gridSnapToggle?.setAttribute("aria-pressed", String(gridEnabled));
+    updateGridOverlay();
+  };
+  const onGridSizeInput = () => {
+    const next = Number(gridSizeInput?.value);
+    if (!Number.isFinite(next) || next <= 0) return;
+    gridSize = next;
+    updateGridOverlay();
+  };
+  gridVisibilityToggle?.addEventListener("click", onGridVisibilityToggle);
+  gridSnapToggle?.addEventListener("click", onGridSnapToggle);
+  gridSizeInput?.addEventListener("input", onGridSizeInput);
 
   return {
     updateTooltip,
@@ -1877,6 +1866,9 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       window.removeEventListener("pointercancel", onPointerUp);
       window.removeEventListener("pointercancel", onPointPointerUp);
       window.removeEventListener("resize", onWindowResize);
+      gridVisibilityToggle?.removeEventListener("click", onGridVisibilityToggle);
+      gridSnapToggle?.removeEventListener("click", onGridSnapToggle);
+      gridSizeInput?.removeEventListener("input", onGridSizeInput);
       if (tooltip) tooltip.hidden = true;
       if (handles) handles.hidden = true;
       if (points) { points.hidden = true; points.replaceChildren(); }
@@ -3151,6 +3143,9 @@ function renderAssetDetail(assetId) {
   const primaryPoints = document.getElementById("asset-primary-points");
   const primaryShapeMode = document.getElementById("asset-primary-shape-mode");
   const primaryGrid = document.getElementById("asset-primary-grid");
+  const gridVisibilityToggle = document.getElementById("asset-grid-visibility-toggle");
+  const gridSnapToggle = document.getElementById("asset-grid-snap-toggle");
+  const gridSizeInput = document.getElementById("asset-grid-size-input");
   const primaryCanvas = document.getElementById("asset-primary-canvas");
   const primarySizeCaption = document.getElementById("asset-primary-size-caption");
   const previewSizeSelect = document.getElementById("asset-preview-size-select");
@@ -3238,7 +3233,7 @@ function renderAssetDetail(assetId) {
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
     (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
   );
-  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController, primaryPoints, primaryShapeMode, primaryGrid);
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController, primaryPoints, primaryShapeMode, primaryGrid, gridVisibilityToggle, gridSnapToggle, gridSizeInput);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
   activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
