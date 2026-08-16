@@ -125,6 +125,7 @@ const assetCustomColors = new Map();
 const assetViewBoxEdits = new Map();
 const assetAccessibilityEdits = new Map();
 const assetSourceSizeEdits = new Map();
+const assetModified = new Set();
 const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
 // contains), so the panel can auto-focus that group's name field once rendered.
@@ -257,6 +258,7 @@ function remapAssetLayerEdits(assetId, remap) {
     if (newNumber) next.set(newNumber, edit);
   }
   assetLayerEdits.set(assetId, next);
+  assetModified.add(assetId);
 }
 
 // Keeps the multi-select checkbox selection valid after operations that renumber
@@ -300,6 +302,7 @@ function reorderAssetLayer(asset, fromNumber, toNumber, onComplete) {
     remapAssetLayerEdits(asset.id, remap);
     remapAssetLayerSelection(asset.id, remap);
     refreshAssetSvgMetrics(data, svg);
+    assetModified.add(asset.id);
     onComplete?.();
   });
 }
@@ -781,6 +784,7 @@ function updateAssetLayerEdits(assetId, layerNumber, updates) {
     paints: { ...existing.paints, ...updates.paints },
     attrs: { ...existing.attrs, ...updates.attrs }
   });
+  assetModified.add(assetId);
 }
 
 function applyAssetLayerEdits(svg, assetId) {
@@ -2412,6 +2416,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     const addElement = (shape, container) => {
       createAssetElement(asset, shape, container, (newNumber) => {
         if (newNumber) assetPendingElementSelection.set(asset.id, newNumber);
+        assetModified.add(asset.id);
         showToast(`Added a new ${shape} element.`);
         renderAssetDetail(asset.id);
       });
@@ -2419,6 +2424,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     const { status: combineStatus, combineButton, clearButton } = renderAssetLayerActions(actionsBar, data, () => {
       const combining = [...selection];
       combineAssetLayers(asset, combining, (combinedNumbers) => {
+        assetModified.add(asset.id);
         selection.clear();
         if (combinedNumbers?.length) assetPendingGroupFocus.set(asset.id, new Set(combinedNumbers));
         showToast(`Combined ${combinedNumbers.length || combining.length} elements into a group.`);
@@ -3338,6 +3344,7 @@ function renderLogos(assets) {
 
 function renderAssetDetail(assetId) {
   const title = document.getElementById("asset-detail-title");
+  const saveButton = document.getElementById("asset-save-button");
   const meta = document.getElementById("asset-detail-meta");
   const deepLink = document.getElementById("asset-deep-link");
   const projectLink = document.getElementById("asset-project-link");
@@ -3359,7 +3366,6 @@ function renderAssetDetail(assetId) {
   const viewBoxForm = document.getElementById("asset-viewbox-form");
   const viewBoxCancel = document.getElementById("asset-viewbox-cancel");
   const primaryCanvas = document.getElementById("asset-primary-canvas");
-  const primarySizeCaption = document.getElementById("asset-primary-size-caption");
   const previewSizeSelect = document.getElementById("asset-preview-size-select");
   const previewSizeListToggle = document.getElementById("asset-preview-size-list-toggle");
   const colorsSection = document.getElementById("asset-detail-colors-section");
@@ -3376,7 +3382,7 @@ function renderAssetDetail(assetId) {
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
   const layerActions = document.getElementById("asset-layer-actions");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || !viewBoxValue || !viewBoxEditor || !viewBoxForm || !viewBoxCancel || viewBoxInputs.some((input) => !input)) return;
+  if (!title || !saveButton || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || !viewBoxValue || !viewBoxEditor || !viewBoxForm || !viewBoxCancel || viewBoxInputs.some((input) => !input)) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -3410,6 +3416,22 @@ function renderAssetDetail(assetId) {
   }
 
   const projectName = projectForAsset(asset);
+  const syncSaveButton = () => {
+    saveButton.disabled = !assetModified.has(asset.id);
+  };
+  syncSaveButton();
+  saveButton.onclick = () => {
+    const svg = primarySvg.querySelector("svg");
+    if (!svg || !assetModified.has(asset.id)) return;
+    const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${asset.id}.svg`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    assetModified.delete(asset.id);
+    syncSaveButton();
+  };
   loadAssetSvgData(asset.source).then((data) => {
     const viewBox = assetViewBoxEdits.get(asset.id) || parseSvgViewBox(data.viewBox);
     if (!viewBox) return;
@@ -3424,6 +3446,8 @@ function renderAssetDetail(assetId) {
     viewBoxValue.textContent = viewBox.join(" ");
     const svg = primarySvg.querySelector("svg");
     if (svg) svg.setAttribute("viewBox", viewBox.join(" "));
+    assetModified.add(asset.id);
+    syncSaveButton();
   };
   viewBoxForm.onsubmit = (event) => {
     event.preventDefault();
@@ -3455,7 +3479,6 @@ function renderAssetDetail(assetId) {
     option.textContent = `${size}px`;
     return option;
   }));
-  primarySizeCaption.textContent = previewSizeLabel(defaultPreviewSize);
   renderAssetPrimarySvg(primarySvg, asset, defaultPreviewSize);
   activePrimaryLayerInteractionCleanup?.();
   const primaryInteractionState = { updateTooltip: () => {} };
@@ -3486,7 +3509,11 @@ function renderAssetDetail(assetId) {
   const addCustomColor = () => {
     const color = customColorInput.value.toUpperCase();
     const colors = assetCustomColors.get(asset.id) || [];
-    if (!colors.includes(color)) assetCustomColors.set(asset.id, [...colors, color]);
+    if (!colors.includes(color)) {
+      assetCustomColors.set(asset.id, [...colors, color]);
+      assetModified.add(asset.id);
+      syncSaveButton();
+    }
     renderCustomColors();
   };
   renderCustomColors();
@@ -3498,6 +3525,8 @@ function renderAssetDetail(assetId) {
   customColorInput.onchange = addCustomColor;
   renderAssetDiagnostics(diagnostics, asset, () => {
     applyAssetAccessibility(primarySvg.querySelector("svg"), asset.id);
+    assetModified.add(asset.id);
+    syncSaveButton();
   }, () => {
     const svg = primarySvg.querySelector("svg");
     const sourceSize = assetSourceSizeEdits.get(asset.id);
@@ -3505,11 +3534,12 @@ function renderAssetDetail(assetId) {
       svg.setAttribute("width", String(sourceSize.width));
       svg.setAttribute("height", String(sourceSize.height));
     }
+    assetModified.add(asset.id);
+    syncSaveButton();
   });
 
   const showCanvasSize = (size) => {
     previewSizeSelect.value = String(size);
-    primarySizeCaption.textContent = previewSizeLabel(size);
     setAssetPrimarySvgSize(primarySvg, asset, size);
     primaryCanvas.hidden = false;
     sizeGrid.hidden = true;
