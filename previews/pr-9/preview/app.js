@@ -3169,6 +3169,10 @@ function renderAssetDetail(assetId) {
   const gridSnapToggle = document.getElementById("asset-grid-snap-toggle");
   const gridSizeInput = document.getElementById("asset-grid-size-input");
   const viewBoxInputs = ["x", "y", "width", "height"].map((name) => document.getElementById(`asset-viewbox-${name}`));
+  const viewBoxValue = document.getElementById("asset-viewbox-value");
+  const viewBoxEditor = document.getElementById("asset-viewbox-editor");
+  const viewBoxForm = document.getElementById("asset-viewbox-form");
+  const viewBoxCancel = document.getElementById("asset-viewbox-cancel");
   const primaryCanvas = document.getElementById("asset-primary-canvas");
   const primarySizeCaption = document.getElementById("asset-primary-size-caption");
   const previewSizeSelect = document.getElementById("asset-preview-size-select");
@@ -3187,7 +3191,7 @@ function renderAssetDetail(assetId) {
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
   const layerActions = document.getElementById("asset-layer-actions");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || viewBoxInputs.some((input) => !input)) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || !viewBoxValue || !viewBoxEditor || !viewBoxForm || !viewBoxCancel || viewBoxInputs.some((input) => !input)) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -3226,15 +3230,22 @@ function renderAssetDetail(assetId) {
     if (!viewBox) return;
     assetViewBoxEdits.set(asset.id, viewBox);
     viewBoxInputs.forEach((input, index) => { input.value = String(viewBox[index]); });
+    viewBoxValue.textContent = viewBox.join(" ");
   });
   const updateViewBox = () => {
     const viewBox = viewBoxInputs.map((input) => Number(input.value));
     if (!Number.isFinite(viewBox[0]) || !Number.isFinite(viewBox[1]) || !Number.isFinite(viewBox[2]) || !Number.isFinite(viewBox[3]) || viewBox[2] <= 0 || viewBox[3] <= 0) return;
     assetViewBoxEdits.set(asset.id, viewBox);
+    viewBoxValue.textContent = viewBox.join(" ");
     const svg = primarySvg.querySelector("svg");
     if (svg) svg.setAttribute("viewBox", viewBox.join(" "));
   };
-  viewBoxInputs.forEach((input) => { input.oninput = updateViewBox; });
+  viewBoxForm.onsubmit = (event) => {
+    event.preventDefault();
+    updateViewBox();
+    viewBoxEditor.hidePopover();
+  };
+  viewBoxCancel.onclick = () => viewBoxEditor.hidePopover();
   title.textContent = asset.label;
   meta.textContent = `${asset.id} · ${asset.source} · ${projectName} · ${logoTypeForAsset(asset)}`;
   deepLink.href = window.location.href;
