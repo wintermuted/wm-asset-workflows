@@ -960,11 +960,11 @@
   inset: 0;
   z-index: 2;
   padding: 0.75rem;
-  border: 1px solid var(--wm-border-subtle);
+  border: 1px solid var(--wm-color-border);
   border-radius: 0.4rem;
-  background: var(--wm-surface);
-  color: var(--wm-text);
-  box-shadow: 0 8px 24px rgb(15 23 42 / 18%);
+  background: var(--wm-color-surface-solid);
+  color: var(--wm-color-text);
+  box-shadow: var(--wm-shadow-md);
 }
 
 .asset-viewbox-editor[hidden] {
@@ -990,6 +990,12 @@
 
 .asset-viewbox-editor input {
   width: 100%;
+  min-width: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  padding: 0.3rem 0.4rem;
 }
 
 .asset-viewbox-actions {
@@ -997,6 +1003,25 @@
   justify-content: flex-end;
   gap: 0.4rem;
   margin-top: 0.25rem;
+}
+
+.asset-viewbox-actions button {
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  padding: 0.35rem 0.65rem;
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface-strong);
+  cursor: pointer;
+}
+
+.asset-viewbox-actions button[type="submit"] {
+  border-color: var(--wm-color-accent);
+  color: var(--wm-color-text-inverse, #fff);
+  background: var(--wm-color-accent);
+}
+
+.asset-viewbox-actions button:hover {
+  border-color: var(--wm-color-accent);
 }
 
 /* Dashed accent outline on the element being point-edited, so the active
