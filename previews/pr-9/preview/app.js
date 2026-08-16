@@ -2064,7 +2064,6 @@ function renderAssetDiagnostics(root, asset) {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
     root.textContent = "";
     const diagnostics = [
-      ["ViewBox", data.viewBox],
       ["Source size", `${data.width} × ${data.height}`],
       ["Elements", `${data.paintLayerCount} primitives`],
       ["Element order", "DOM order, bottom → top"],
