@@ -125,6 +125,7 @@ const assetCustomColors = new Map();
 const assetViewBoxEdits = new Map();
 const assetAccessibilityEdits = new Map();
 const assetSourceSizeEdits = new Map();
+const assetGroupEdits = new Map();
 const assetModified = new Set();
 const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
@@ -156,7 +157,7 @@ const GRAPHIC_ELEMENT_SELECTOR = "path, rect, circle, ellipse, line, polyline, p
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
 const SVG_ELEMENT_GEOMETRY_ATTRIBUTES = new Map([
-  ["rect", ["x", "y", "width", "height"]],
+  ["rect", ["x", "y", "width", "height", "rx", "ry"]],
   ["circle", ["cx", "cy", "r"]],
   ["ellipse", ["cx", "cy", "rx", "ry"]],
   ["line", ["x1", "y1", "x2", "y2"]],
@@ -171,7 +172,16 @@ function enumerateElementAttributes(elementName, attributes) {
   for (const name of SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(elementName) || []) {
     if (!existing.has(name)) entries.push([name, ""]);
   }
-  return entries;
+  if (!existing.has("stroke")) entries.push(["stroke", "none"]);
+  const styleOrder = new Map([["fill", 0], ["opacity", 1], ["stroke", 2]]);
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => {
+      const leftOrder = styleOrder.get(left.entry[0]) ?? 3;
+      const rightOrder = styleOrder.get(right.entry[0]) ?? 3;
+      return leftOrder - rightOrder || left.index - right.index;
+    })
+    .map(({ entry }) => entry);
 }
 
 function normalizeSvgColor(value) {
@@ -219,6 +229,7 @@ function computePaintLayers(svg) {
     return {
       number: index + 1,
       element: element.localName,
+      elementNode: element,
       id: element.getAttribute("id") || "",
       paints: graphicElementPaints(element, svg),
       opacity: element.getAttribute("opacity") || "",
@@ -848,6 +859,14 @@ function applyAssetLayerEdits(svg, assetId) {
       element.setAttribute("transform", parts.join(" ").trim());
     }
   }
+  const groupEdits = assetGroupEdits.get(assetId);
+  if (groupEdits) {
+    const groups = Array.from(svg.querySelectorAll("g"));
+    groups.forEach((group, index) => {
+      const edit = groupEdits.get(index + 1);
+      if (edit?.opacity !== undefined) group.setAttribute("opacity", String(edit.opacity));
+    });
+  }
 }
 
 // Positions the primary preview tooltip next to `element`, anchoring its
@@ -890,6 +909,26 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
+  };
+  const syncLayerDimensions = (layerNumber) => {
+    const element = getGraphics()[layerNumber - 1];
+    if (!element) return;
+    const edit = assetLayerEdits.get(asset.id)?.get(layerNumber);
+    let bbox = { x: 0, y: 0, width: 0, height: 0 };
+    try { bbox = element.getBBox(); } catch { /* element may not be renderable yet */ }
+    const box = edit?.resize ?? {
+      left: bbox.x,
+      top: bbox.y,
+      right: bbox.x + bbox.width,
+      bottom: bbox.y + bbox.height
+    };
+    layersController.syncDimensionInputs(layerNumber, {
+      x: box.left + (edit?.offsetX ?? 0),
+      y: box.top + (edit?.offsetY ?? 0),
+      width: box.right - box.left,
+      height: box.bottom - box.top,
+      rx: element.getAttribute("rx") || ""
+    });
   };
   const isTypingTarget = (element) => {
     if (!element) return false;
@@ -1306,6 +1345,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       updateAssetLayerEdits(asset.id, layerNumber, { offsetX, offsetY });
     }
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    for (const layerNumber of layerNumbers) syncLayerDimensions(layerNumber);
     updateTooltip(layersController.getSelectedLayer());
   };
 
@@ -1712,6 +1752,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         });
       }
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      for (const entry of entries) syncLayerDimensions(entry.layerNumber);
       updateHandles(layersController.getSelectedLayer());
       return;
     }
@@ -1777,6 +1818,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
           }
         });
         applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+        syncLayerDimensions(layerNumber);
       };
       applyResize({ left, top, right, bottom });
       // Snap whichever edges the dragged handle actually moves against the
@@ -1829,6 +1871,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         });
       }
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+      for (const layerNumber of dragState.layerNumbers) syncLayerDimensions(layerNumber);
     };
     applyGroupOffset(deltaX, deltaY);
     // Snap the union of every dragged element's edges/centers to other
@@ -2414,7 +2457,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     clearHoveredLayer: () => {},
     selectLayer: () => {},
     getSelectedLayer: () => null,
-    getMultiSelection: () => []
+    getMultiSelection: () => [],
+    syncDimensionInputs: () => {}
   };
 
   loadAssetSvgData(asset.source).then((data) => {
@@ -2532,6 +2576,12 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
     controller.syncGeometryInput = (layerNumber, name, value) => {
       const input = geometryInputs.get(`${layerNumber}:${name}`);
       if (input && input.value !== value) input.value = value;
+    };
+    controller.syncDimensionInputs = (layerNumber, values) => {
+      for (const [name, value] of Object.entries(values)) {
+        const input = geometryInputs.get(`${layerNumber}:${name}`);
+        if (input && document.activeElement !== input) input.value = String(value);
+      }
     };
     const layerByNumber = new Map(data.paintLayers.map((entry) => [entry.number, entry]));
     function renderElementRow(layer) {
@@ -2781,64 +2831,86 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       closeButton.title = "Close element editor";
       closeButton.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
       editorHeader.append(editorTitle, closeButton);
-      const moveControls = document.createElement("div");
-      moveControls.className = "asset-layer-move-controls";
-      const xInput = document.createElement("input");
-      xInput.type = "number";
-      xInput.step = "1";
-      xInput.value = String(currentEdits.offsetX || 0);
-      xInput.setAttribute("aria-label", `Element ${layer.number} horizontal offset`);
-      const yInput = document.createElement("input");
-      yInput.type = "number";
-      yInput.step = "1";
-      yInput.value = String(currentEdits.offsetY || 0);
-      yInput.setAttribute("aria-label", `Element ${layer.number} vertical offset`);
-      const setPosition = (x, y) => {
-        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-        xInput.value = String(x);
-        yInput.value = String(y);
-        updateAssetLayerEdits(asset.id, layer.number, { offsetX: x, offsetY: y });
+      const strokeControls = document.createElement("div");
+      strokeControls.className = "asset-layer-stroke-controls";
+      const currentAttrs = currentEdits.attrs || {};
+      const strokeLabel = document.createElement("label");
+      const strokeInput = document.createElement("input");
+      strokeInput.type = "color";
+      strokeInput.value = normalizeSvgColor(currentEdits.paints.stroke ?? resolveSvgPaint(layer.elementNode, "stroke", data.svg)) || "#000000";
+      strokeInput.setAttribute("aria-label", `Element ${layer.number} stroke color`);
+      const { field: strokeWidthField } = createSteppedNumberField({
+        value: currentAttrs["stroke-width"] ?? layer.elementNode.getAttribute("stroke-width") ?? "1",
+        step: "0.01",
+        ariaLabel: `Element ${layer.number} stroke width`,
+        onChange: (next) => {
+          if (next < 0) return;
+          updateAssetLayerEdits(asset.id, layer.number, {
+            paints: { stroke: strokeInput.value.toUpperCase() },
+            attrs: { "stroke-width": String(next) }
+          });
+          onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+        }
+      });
+      strokeInput.addEventListener("input", () => {
+        updateAssetLayerEdits(asset.id, layer.number, { paints: { stroke: strokeInput.value.toUpperCase() } });
         onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
-      };
-      xInput.addEventListener("input", () => setPosition(Number(xInput.value), Number(yInput.value)));
-      yInput.addEventListener("input", () => setPosition(Number(xInput.value), Number(yInput.value)));
-      const createNudgeButton = (direction, icon, xDelta, yDelta) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `asset-layer-nudge-button asset-layer-nudge-button--${direction}`;
-        button.setAttribute("aria-label", `Move element ${direction}`);
-        button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
-        button.addEventListener("click", () => setPosition(Number(xInput.value) + xDelta, Number(yInput.value) + yDelta));
-        return button;
-      };
-      const moveHeading = document.createElement("span");
-      moveHeading.textContent = "Position";
-      const xLabel = document.createElement("label");
-      xLabel.className = "asset-layer-position-input asset-layer-position-input--x";
-      xLabel.textContent = "X";
-      xLabel.appendChild(xInput);
-      const yLabel = document.createElement("label");
-      yLabel.className = "asset-layer-position-input asset-layer-position-input--y";
-      yLabel.textContent = "Y";
-      yLabel.appendChild(yInput);
-      const positionInputs = document.createElement("div");
-      positionInputs.className = "asset-layer-position-inputs";
-      positionInputs.append(xLabel, yLabel);
-      moveControls.append(
-        moveHeading,
-        createNudgeButton("up", "arrow-up", 0, -1),
-        createNudgeButton("left", "arrow-left", -1, 0),
-        positionInputs,
-        createNudgeButton("right", "arrow-right", 1, 0),
-        createNudgeButton("down", "arrow-down", 0, 1)
-      );
+      });
+      strokeLabel.append(strokeInput, strokeWidthField);
+      strokeControls.appendChild(strokeLabel);
       const attributes = document.createElement("dl");
       attributes.className = "asset-layer-attributes";
-      const currentAttrs = currentEdits.attrs || {};
-      for (const [name, value] of enumerateElementAttributes(layer.element, layer.attributes)) {
+      const dimensions = document.createElement("div");
+      dimensions.className = "asset-layer-dimensions";
+      const dimensionsTitle = document.createElement("strong");
+      dimensionsTitle.textContent = "Dimensions";
+      const dimensionAttributes = document.createElement("dl");
+      dimensionAttributes.className = "asset-layer-attributes asset-layer-dimensions-list";
+      dimensions.append(dimensionsTitle, dimensionAttributes);
+      const elementGeometryNames = new Set(SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(layer.element) || []);
+      const appendDimensionAttribute = (name, value) => {
         const term = document.createElement("dt");
         term.textContent = name;
         const description = document.createElement("dd");
+        if (GEOMETRY_ATTRIBUTES.has(name)) {
+          const { field, input } = createGeometryField({
+            value: currentAttrs[name] ?? value,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: next } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          geometryInputs.set(`${layer.number}:${name}`, input);
+          description.appendChild(field);
+        } else {
+          const step = value.includes(".") ? "0.01" : "1";
+          const { field } = createSteppedNumberField({
+            value: currentAttrs[name] ?? value,
+            step,
+            ariaLabel: `Element ${layer.number} ${name}`,
+            onChange: (next) => {
+              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
+              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
+            }
+          });
+          description.appendChild(field);
+        }
+        dimensionAttributes.append(term, description);
+      };
+      for (const [name, value] of enumerateElementAttributes(layer.element, layer.attributes)) {
+        if (elementGeometryNames.has(name)) {
+          appendDimensionAttribute(name, value);
+          continue;
+        }
+        const term = document.createElement("dt");
+        term.textContent = name;
+        const description = document.createElement("dd");
+        if (name === "stroke") {
+          description.appendChild(strokeControls);
+          attributes.append(term, description);
+          continue;
+        }
         const isColorAttr = name === "fill" || name === "stroke";
         const normalizedColor = isColorAttr ? normalizeSvgColor(currentEdits.paints[name] ?? value) : "";
         if (normalizedColor) {
@@ -2873,29 +2945,6 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           });
           attrOpacityInput = input;
           description.appendChild(field);
-        } else if (GEOMETRY_ATTRIBUTES.has(name)) {
-          const { field, input } = createGeometryField({
-            value: currentAttrs[name] ?? value,
-            ariaLabel: `Element ${layer.number} ${name}`,
-            onChange: (next) => {
-              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: next } });
-              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
-            }
-          });
-          geometryInputs.set(`${layer.number}:${name}`, input);
-          description.appendChild(field);
-        } else if (SVG_ELEMENT_GEOMETRY_ATTRIBUTES.get(layer.element)?.includes(name)) {
-          const step = value.includes(".") ? "0.01" : "1";
-          const { field } = createSteppedNumberField({
-            value: currentAttrs[name] ?? value,
-            step,
-            ariaLabel: `Element ${layer.number} ${name}`,
-            onChange: (next) => {
-              updateAssetLayerEdits(asset.id, layer.number, { attrs: { [name]: String(next) } });
-              onEdit?.(layer.number, assetLayerEdits.get(asset.id).get(layer.number));
-            }
-          });
-          description.appendChild(field);
         } else if (value !== "" && Number.isFinite(Number(value))) {
           const step = value.includes(".") ? "0.01" : "1";
           const { field } = createSteppedNumberField({
@@ -2913,7 +2962,7 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
         }
         attributes.append(term, description);
       }
-      layerEditor.append(editorHeader, moveControls, attributes);
+      layerEditor.append(editorHeader, attributes, dimensions);
       const editButton = document.createElement("button");
       editButton.type = "button";
       editButton.className = "asset-layer-edit-button";
@@ -2972,6 +3021,31 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
           const tag = document.createElement("code");
           tag.textContent = "<g>";
           header.appendChild(tag);
+          const allGroups = Array.from(data.svg.querySelectorAll("g"));
+          const groupKey = allGroups.indexOf(node.element) + 1;
+          const groupEdit = groupKey ? (assetGroupEdits.get(asset.id)?.get(groupKey) || {}) : {};
+          const groupOpacity = document.createElement("input");
+          groupOpacity.type = "number";
+          groupOpacity.min = "0";
+          groupOpacity.max = "1";
+          groupOpacity.step = "0.01";
+          groupOpacity.value = String(groupEdit.opacity ?? node.element.getAttribute("opacity") ?? 1);
+          groupOpacity.className = "asset-element-group-opacity";
+          groupOpacity.setAttribute("aria-label", "Group opacity");
+          groupOpacity.title = "Group opacity";
+          groupOpacity.addEventListener("pointerdown", (event) => event.stopPropagation());
+          groupOpacity.addEventListener("input", () => {
+            const next = Number(groupOpacity.value);
+            if (!Number.isFinite(next) || next < 0 || next > 1 || !groupKey) return;
+            if (!assetGroupEdits.has(asset.id)) assetGroupEdits.set(asset.id, new Map());
+            assetGroupEdits.get(asset.id).set(groupKey, { opacity: next });
+            assetModified.add(asset.id);
+            const primaryGroup = document.querySelectorAll("#asset-primary-svg svg g")[groupKey - 1];
+            if (primaryGroup) primaryGroup.setAttribute("opacity", String(next));
+            applyAssetLayerEdits(document.querySelector("#asset-primary-svg svg"), asset.id);
+            onEdit?.();
+          });
+          header.appendChild(groupOpacity);
           const nameInput = document.createElement("input");
           nameInput.type = "text";
           nameInput.className = "asset-element-group-name";
@@ -3047,7 +3121,8 @@ function renderAssetLayers(root, editorPanel, actionsBar, asset, onHighlight, on
       layerItems.get(selectedLayerNumber)?.scrollIntoView({ block: "nearest" });
     }
     if (typeof lucide !== "undefined") lucide.createIcons();
-  }).catch(() => {
+  }).catch((error) => {
+    console.error("Failed to render element editor", error);
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Element information unavailable";
   });
 
@@ -3519,7 +3594,10 @@ function renderAssetDetail(assetId) {
     layerActions,
     asset,
     (layerNumber, highlighted) => setPrimarySvgLayerHighlight(primarySvg, layerNumber, highlighted),
-    () => applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id),
+    () => {
+      applyAssetLayerEdits(primarySvg.querySelector("svg"), asset.id);
+      syncSaveButton();
+    },
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
     (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
   );
