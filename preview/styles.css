@@ -931,6 +931,32 @@
   width: 4.5rem;
 }
 
+.asset-viewbox-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--wm-border-subtle);
+  border-radius: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.asset-viewbox-control legend {
+  padding: 0 0.2rem;
+  font-size: 0.7rem;
+}
+
+.asset-viewbox-control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.asset-viewbox-control input {
+  width: 3.75rem;
+}
+
 /* Dashed accent outline on the element being point-edited, so the active
    shape stays identifiable even when its handles overlap other elements. */
 .asset-primary-svg svg .is-shape-editing {

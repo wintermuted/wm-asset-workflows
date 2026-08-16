@@ -122,6 +122,7 @@ let toastTimeout;
 const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
+const assetViewBoxEdits = new Map();
 const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
 // contains), so the panel can auto-focus that group's name field once rendered.
@@ -718,11 +719,18 @@ function renderAssetPrimarySvg(root, asset, size = "fit") {
     svg.removeAttribute("height");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
+    const viewBox = assetViewBoxEdits.get(asset.id);
+    if (viewBox) svg.setAttribute("viewBox", viewBox.join(" "));
     applyAssetLayerEdits(svg, asset.id);
     root.replaceChildren(svg);
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Preview unavailable";
   });
+}
+
+function parseSvgViewBox(value) {
+  const numbers = String(value || "").trim().split(/[\s,]+/).map(Number);
+  return numbers.length === 4 && numbers.every(Number.isFinite) ? numbers : null;
 }
 
 function updateAssetLayerEdits(assetId, layerNumber, updates) {
@@ -3160,6 +3168,7 @@ function renderAssetDetail(assetId) {
   const gridVisibilityToggle = document.getElementById("asset-grid-visibility-toggle");
   const gridSnapToggle = document.getElementById("asset-grid-snap-toggle");
   const gridSizeInput = document.getElementById("asset-grid-size-input");
+  const viewBoxInputs = ["x", "y", "width", "height"].map((name) => document.getElementById(`asset-viewbox-${name}`));
   const primaryCanvas = document.getElementById("asset-primary-canvas");
   const primarySizeCaption = document.getElementById("asset-primary-size-caption");
   const previewSizeSelect = document.getElementById("asset-preview-size-select");
@@ -3178,7 +3187,7 @@ function renderAssetDetail(assetId) {
   const layerEditorPanel = document.getElementById("asset-layer-editor-panel");
   const layerActions = document.getElementById("asset-layer-actions");
   const sizeGrid = document.getElementById("asset-size-grid");
-  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid) return;
+  if (!title || !meta || !deepLink || !projectLink || !overview || !primaryPreview || !primarySvg || !primaryTooltip || !primaryHandles || !primaryGuides || !primaryCanvas || !primarySizeCaption || !previewSizeSelect || !previewSizeListToggle || !colorsSection || !colorsList || !projectColorsList || !customColorsList || !customColorForm || !customColorInput || !customColorAddButton || !highlightStatus || !diagnostics || !layersSection || !layersList || !layerEditorPanel || !layerActions || !sizeGrid || viewBoxInputs.some((input) => !input)) return;
 
   sizeGrid.innerHTML = "";
   colorsList.textContent = "";
@@ -3212,6 +3221,20 @@ function renderAssetDetail(assetId) {
   }
 
   const projectName = projectForAsset(asset);
+  loadAssetSvgData(asset.source).then((data) => {
+    const viewBox = assetViewBoxEdits.get(asset.id) || parseSvgViewBox(data.viewBox);
+    if (!viewBox) return;
+    assetViewBoxEdits.set(asset.id, viewBox);
+    viewBoxInputs.forEach((input, index) => { input.value = String(viewBox[index]); });
+  });
+  const updateViewBox = () => {
+    const viewBox = viewBoxInputs.map((input) => Number(input.value));
+    if (!Number.isFinite(viewBox[0]) || !Number.isFinite(viewBox[1]) || !Number.isFinite(viewBox[2]) || !Number.isFinite(viewBox[3]) || viewBox[2] <= 0 || viewBox[3] <= 0) return;
+    assetViewBoxEdits.set(asset.id, viewBox);
+    const svg = primarySvg.querySelector("svg");
+    if (svg) svg.setAttribute("viewBox", viewBox.join(" "));
+  };
+  viewBoxInputs.forEach((input) => { input.oninput = updateViewBox; });
   title.textContent = asset.label;
   meta.textContent = `${asset.id} · ${asset.source} · ${projectName} · ${logoTypeForAsset(asset)}`;
   deepLink.href = window.location.href;
