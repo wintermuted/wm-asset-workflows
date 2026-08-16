@@ -943,6 +943,10 @@
   flex: 1;
 }
 
+.asset-detail-diagnostics .asset-detail-disclosure-body {
+  position: relative;
+}
+
 .asset-viewbox-edit {
   display: inline-grid;
   place-items: center;
@@ -952,13 +956,19 @@
 }
 
 .asset-viewbox-editor {
-  margin: 0.5rem 0 0;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   padding: 0.75rem;
   border: 1px solid var(--wm-border-subtle);
   border-radius: 0.4rem;
   background: var(--wm-surface);
   color: var(--wm-text);
   box-shadow: 0 8px 24px rgb(15 23 42 / 18%);
+}
+
+.asset-viewbox-editor[hidden] {
+  display: none;
 }
 
 .asset-viewbox-editor form {

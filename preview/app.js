@@ -3243,9 +3243,12 @@ function renderAssetDetail(assetId) {
   viewBoxForm.onsubmit = (event) => {
     event.preventDefault();
     updateViewBox();
-    viewBoxEditor.hidePopover();
+    viewBoxEditor.hidden = true;
   };
-  viewBoxCancel.onclick = () => viewBoxEditor.hidePopover();
+  viewBoxCancel.onclick = () => { viewBoxEditor.hidden = true; };
+  document.getElementById("asset-viewbox-edit").onclick = () => {
+    viewBoxEditor.hidden = false;
+  };
   title.textContent = asset.label;
   meta.textContent = `${asset.id} · ${asset.source} · ${projectName} · ${logoTypeForAsset(asset)}`;
   deepLink.href = window.location.href;
