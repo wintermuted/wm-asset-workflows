@@ -1,1 +1,1 @@
-import "../../packages/workflows/src/build-spec-index.mjs";
+import "../../dist/packages/workflows/src/build-spec-index.js";

@@ -1,4 +1,7 @@
 {
   "name": "@wm-asset-workflows/image-generation",
-  "private": true
+  "private": true,
+  "type": "module",
+  "main": "../../dist/packages/image-generation/src/generate-images.js",
+  "types": "../../dist/packages/image-generation/src/generate-images.d.ts"
 }

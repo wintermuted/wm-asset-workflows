@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
-import { createServerConfig } from "./config.mjs";
-import { createReloadSupport } from "./reload.mjs";
-import { createRequestHandler } from "./routes.mjs";
+import { createServerConfig } from "./config.js";
+import { createReloadSupport } from "./reload.js";
+import { createRequestHandler } from "./routes.js";
 
 const config = createServerConfig();
 const reload = createReloadSupport(config);

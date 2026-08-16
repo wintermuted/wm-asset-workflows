@@ -43,7 +43,7 @@ This installs missing dependencies and rebuilds the spec index first. The previe
 Custom port:
 
 ```bash
-node scripts/node/serve-preview.mjs --port 5000
+npx nx run preview-server:serve -- --port 5000
 ```
 
 ## Stopping the Preview Server

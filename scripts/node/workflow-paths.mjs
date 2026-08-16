@@ -1,1 +1,1 @@
-export * from "../../packages/workflows/src/workflow-paths.mjs";
+export * from "../../dist/packages/workflows/src/workflow-paths.js";

@@ -1,0 +1,75 @@
+{
+  "name": "workflows",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "packages/workflows/src",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "options": {
+        "main": "packages/workflows/src/build-spec-index.ts",
+        "outputPath": "dist/packages/workflows",
+        "tsConfig": "packages/workflows/tsconfig.json"
+      }
+    },
+    "build-specs": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build",
+        {
+          "projects": [
+            "preview-app"
+          ],
+          "target": "build"
+        }
+      ],
+      "outputs": [
+        "{workspaceRoot}/preview/spec-index.json"
+      ],
+      "options": {
+        "command": "node dist/packages/workflows/src/build-spec-index.js"
+      }
+    },
+    "capture": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build",
+        "build-specs",
+        {
+          "projects": [
+            "preview-server"
+          ],
+          "target": "build"
+        }
+      ],
+      "outputs": [
+        "{workspaceRoot}/outputs/screenshots"
+      ],
+      "options": {
+        "command": "node dist/packages/workflows/src/capture-preview.js"
+      }
+    },
+    "logo": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "capture",
+        {
+          "projects": [
+            "image-generation"
+          ],
+          "target": "generate-png"
+        }
+      ],
+      "options": {
+        "command": "node -e \"console.log('Logo workflow complete')\""
+      }
+    }
+  },
+  "tags": [
+    "scope:tooling",
+    "type:application"
+  ]
+}

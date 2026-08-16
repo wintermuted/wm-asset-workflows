@@ -1,1 +1,1 @@
-import "../../packages/preview-server/src/index.mjs";
+import "../../dist/packages/preview-server/src/index.js";

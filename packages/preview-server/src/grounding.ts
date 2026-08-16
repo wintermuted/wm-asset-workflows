@@ -2,7 +2,7 @@ import { access, mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { basename, extname, join } from "node:path";
 import { promisify } from "node:util";
-import { readManifest, writeManifest, pruneFavoriteColors } from "./manifest.mjs";
+import { readManifest, writeManifest, pruneFavoriteColors } from "./manifest.js";
 
 const execFileAsync = promisify(execFile);
 

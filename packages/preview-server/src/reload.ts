@@ -2,7 +2,7 @@ import { watch } from "node:fs/promises";
 import { join } from "node:path";
 
 export function createReloadSupport({ root, quiet }) {
-  const clients = new Set();
+  const clients = new Set<import("node:http").ServerResponse>();
   let suppressUntil = 0;
 
   function broadcast() {

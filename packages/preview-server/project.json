@@ -1,0 +1,43 @@
+{
+  "name": "preview-server",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "packages/preview-server/src",
+  "implicitDependencies": [
+    "preview-app",
+    "workflows"
+  ],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "options": {
+        "main": "packages/preview-server/src/index.ts",
+        "outputPath": "dist/packages/preview-server",
+        "tsConfig": "packages/preview-server/tsconfig.json"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build",
+        {
+          "projects": [
+            "workflows"
+          ],
+          "target": "build-specs"
+        }
+      ],
+      "options": {
+        "command": "node dist/packages/preview-server/src/index.js",
+        "continuous": true
+      }
+    }
+  },
+  "tags": [
+    "scope:preview",
+    "type:application"
+  ]
+}
