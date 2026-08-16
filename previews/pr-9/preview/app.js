@@ -123,6 +123,7 @@ const assetSvgDataCache = new Map();
 const assetLayerEdits = new Map();
 const assetCustomColors = new Map();
 const assetViewBoxEdits = new Map();
+const assetAccessibilityEdits = new Map();
 const assetLayerSelections = new Map();
 // Tracks a group just created by "Combine" (asset id -> Set of element numbers it
 // contains), so the panel can auto-focus that group's name field once rendered.
@@ -721,11 +722,42 @@ function renderAssetPrimarySvg(root, asset, size = "fit") {
     svg.setAttribute("focusable", "false");
     const viewBox = assetViewBoxEdits.get(asset.id);
     if (viewBox) svg.setAttribute("viewBox", viewBox.join(" "));
+    applyAssetAccessibility(svg, asset.id);
     applyAssetLayerEdits(svg, asset.id);
     root.replaceChildren(svg);
   }).catch(() => {
     if (root.isConnected && root.dataset.assetId === asset.id) root.textContent = "Preview unavailable";
   });
+}
+
+function applyAssetAccessibility(svg, assetId) {
+  if (!svg) return;
+  const accessibility = assetAccessibilityEdits.get(assetId);
+  if (!accessibility) return;
+  svg.removeAttribute("aria-labelledby");
+  svg.querySelector("title")?.remove();
+  svg.querySelector("desc")?.remove();
+  const labelledBy = [];
+  if (accessibility.title) {
+    const title = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "title");
+    title.id = `asset-${assetId}-title`;
+    title.textContent = accessibility.title;
+    svg.prepend(title);
+    labelledBy.push(title.id);
+  }
+  if (accessibility.description) {
+    const description = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "desc");
+    description.id = `asset-${assetId}-description`;
+    description.textContent = accessibility.description;
+    svg.insertBefore(description, svg.firstChild?.nextSibling || null);
+    labelledBy.push(description.id);
+  }
+  if (labelledBy.length) {
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-labelledby", labelledBy.join(" "));
+  } else {
+    svg.removeAttribute("role");
+  }
 }
 
 function parseSvgViewBox(value) {
@@ -2056,13 +2088,43 @@ function renderStaticAssetColorList(root, colors, emptyMessage) {
   }
 }
 
-function renderAssetDiagnostics(root, asset) {
+function renderAssetDiagnostics(root, asset, onAccessibilityChange) {
   root.textContent = "Loading...";
   root.dataset.assetId = asset.id;
 
   loadAssetSvgData(asset.source).then((data) => {
     if (!root.isConnected || root.dataset.assetId !== asset.id) return;
     root.textContent = "";
+    const accessibility = assetAccessibilityEdits.get(asset.id) || {
+      title: data.accessibleName === "Not defined" ? "" : data.accessibleName,
+      description: data.description === "Not defined" ? "" : data.description
+    };
+    assetAccessibilityEdits.set(asset.id, accessibility);
+    const editor = document.createElement("div");
+    editor.className = "asset-accessibility-editor";
+    const titleLabel = document.createElement("label");
+    titleLabel.textContent = "Accessible title";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.value = accessibility.title;
+    titleInput.setAttribute("aria-label", "Accessible title");
+    titleLabel.appendChild(titleInput);
+    const descriptionLabel = document.createElement("label");
+    descriptionLabel.textContent = "Description";
+    const descriptionInput = document.createElement("textarea");
+    descriptionInput.rows = 2;
+    descriptionInput.value = accessibility.description;
+    descriptionInput.setAttribute("aria-label", "Accessible description");
+    descriptionLabel.appendChild(descriptionInput);
+    const updateAccessibility = () => {
+      const next = { title: titleInput.value.trim(), description: descriptionInput.value.trim() };
+      assetAccessibilityEdits.set(asset.id, next);
+      onAccessibilityChange?.(next);
+    };
+    titleInput.addEventListener("input", updateAccessibility);
+    descriptionInput.addEventListener("input", updateAccessibility);
+    editor.append(titleLabel, descriptionLabel);
+    root.appendChild(editor);
     const diagnostics = [
       ["Source size", `${data.width} × ${data.height}`],
       ["Elements", `${data.paintLayerCount} primitives`],
@@ -2074,8 +2136,6 @@ function renderAssetDiagnostics(root, asset) {
       ["Groups", data.groupCount ? `${data.groupCount} (max depth ${data.maxGroupDepth})` : "None"],
       ["Effects", data.effects],
       ["File size", data.byteSize < 1024 ? `${data.byteSize} B` : `${(data.byteSize / 1024).toFixed(1)} KB`],
-      ["Accessible title", data.accessibleName],
-      ["Description", data.description]
     ];
     for (const [label, value] of diagnostics) {
       const term = document.createElement("dt");
@@ -3310,7 +3370,9 @@ function renderAssetDetail(assetId) {
     else customColorInput.click();
   };
   customColorInput.onchange = addCustomColor;
-  renderAssetDiagnostics(diagnostics, asset);
+  renderAssetDiagnostics(diagnostics, asset, () => {
+    applyAssetAccessibility(primarySvg.querySelector("svg"), asset.id);
+  });
 
   const showCanvasSize = (size) => {
     previewSizeSelect.value = String(size);
