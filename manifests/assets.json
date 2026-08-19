@@ -55,23 +55,68 @@
       }
     },
     {
-      "name": "wm-assets-workflows",
-      "primaryAssetId": "",
+      "name": "Wintermuted UI Theme",
+      "slug": "wintermuted-ui-theme",
+      "primaryAssetId": "wm-ui-theme-icon",
+      "samplePrompts": [
+        "/create-svg-asset\n\nProject: Wintermuted UI Theme\nDirectory: assets/svg/wintermuted-ui-theme/",
+        "/create-svg-asset\n\nCreate a minimal geometric mark using the uploaded steering source material.\nBase idea: combine a strong silhouette with one distinctive cutout or negative-space detail.\n\nProject: Wintermuted UI Theme\nDirectory: assets/svg/wintermuted-ui-theme/",
+        "/create-svg-asset\n\nCreate an expressive symbol using the uploaded steering source material.\nBase idea: translate the project's core purpose into a modular emblem that remains recognizable at favicon size.\n\nProject: Wintermuted UI Theme\nDirectory: assets/svg/wintermuted-ui-theme/"
+      ],
+      "documentation": "assets/svg/wintermuted-ui-theme/README.md",
       "iconSlots": {
         "favicon": {
           "title": "Favicon",
-          "assetId": "",
-          "note": ""
+          "assetId": "wm-ui-theme-icon",
+          "note": "Browser tab and bookmark icon"
         },
         "appIcon": {
           "title": "Web App Icon",
-          "assetId": "",
-          "note": ""
+          "assetId": "wm-ui-theme-icon",
+          "note": "Theme package and documentation app icon"
         },
         "logoMark": {
           "title": "Logo Mark",
+          "assetId": "wm-ui-theme-icon",
+          "note": "Compact Wintermuted UI Theme identifier"
+        },
+        "wordmark": {
+          "title": "Wordmark",
           "assetId": "",
           "note": ""
+        },
+        "socialPreview": {
+          "title": "Social Preview",
+          "assetId": "",
+          "note": ""
+        }
+      },
+      "agentSteer": {
+        "notes": [
+          "Use the Wintermuted muted RGB cube palette and dark navy foundation.",
+          "Prioritize clarity at package-icon and favicon sizes."
+        ],
+        "sources": []
+      }
+    },
+    {
+      "name": "wm-assets-workflows",
+      "primaryAssetId": "wm-assets-workflows-icon-grayscale",
+      "iconSlots": {
+        "favicon": {
+          "title": "Favicon",
+          "assetId": "wm-assets-workflows-icon-grayscale",
+          "note": "Preview app tab icon"
+        },
+        "appIcon": {
+          "title": "Web App Icon",
+          "assetId": "wm-assets-workflows-icon-grayscale",
+          "note": "Agentic Icon Builder app icon"
+        },
+        "logoMark": {
+          "title": "Logo Mark",
+          "assetId": "wm-assets-workflows-icon-grayscale",
+          "note": "Compact builder identifier"
         },
         "wordmark": {
           "title": "Wordmark",
@@ -87,7 +132,8 @@
       "agentSteer": {
         "notes": [],
         "sources": []
-      }
+      },
+      "slug": "wm-assets-workflows"
     },
     {
       "name": "Solar Punk",
@@ -287,6 +333,51 @@
         "/create-svg-asset\n\nCreate a minimal geometric mark using the uploaded steering source material.\nBase idea: combine a strong silhouette with one distinctive cutout or negative-space detail.\n\nProject: Solar Punk\nDirectory: assets/svg/solar-punk/",
         "/create-svg-asset\n\nCreate an expressive symbol using the uploaded steering source material.\nBase idea: translate the project's core purpose into a modular emblem that remains recognizable at favicon size.\n\nProject: Solar Punk\nDirectory: assets/svg/solar-punk/"
       ]
+    },
+    {
+      "name": "json-resume-wintermuted",
+      "slug": "json-resume-wintermuted",
+      "primaryAssetId": "json-resume-wintermuted-icon-grayscale",
+      "iconSlots": {
+        "favicon": {
+          "title": "Favicon",
+          "assetId": "json-resume-wintermuted-icon-grayscale",
+          "note": "Resume site tab icon"
+        },
+        "appIcon": {
+          "title": "Web App Icon",
+          "assetId": "json-resume-wintermuted-icon-grayscale",
+          "note": "Resume theme package icon"
+        },
+        "logoMark": {
+          "title": "Logo Mark",
+          "assetId": "json-resume-wintermuted-icon-grayscale",
+          "note": "Compact resume identifier"
+        },
+        "wordmark": {
+          "title": "Wordmark",
+          "assetId": "",
+          "note": ""
+        },
+        "socialPreview": {
+          "title": "Social Preview",
+          "assetId": "",
+          "note": ""
+        }
+      },
+      "agentSteer": {
+        "notes": [
+          "Use the Wintermuted muted RGB palette on the dark navy foundation.",
+          "Combine a resume document silhouette with JSON structure cues."
+        ],
+        "sources": [
+          {
+            "kind": "url",
+            "title": "Repository",
+            "url": "https://github.com/wintermuted/cv"
+          }
+        ]
+      }
     }
   ],
   "assets": [
@@ -1060,6 +1151,267 @@
       ]
     },
     {
+      "id": "wm-ui-theme-icon",
+      "label": "Wintermuted UI Theme Icon",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-icon.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "UI Theme"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-components-grid",
+      "label": "Wintermuted UI Theme Components Grid",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-components-grid.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-components-grid-grayscale",
+      "label": "Wintermuted UI Theme Components Grid Grayscale",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-components-grid-grayscale.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-components-grid-mono",
+      "label": "Wintermuted UI Theme Components Grid Mono",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-components-grid-mono.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-components-grid-mono-inverted",
+      "label": "Wintermuted UI Theme Components Grid Mono Inverted",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-components-grid-mono-inverted.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-components-grid-solarized-dark",
+      "label": "Wintermuted UI Theme Components Grid Solarized Dark",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-components-grid-solarized-dark.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-components-grid-solarized-light",
+      "label": "Wintermuted UI Theme Components Grid Solarized Light",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-components-grid-solarized-light.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-icon-flat",
+      "label": "Wintermuted UI Theme Icon Flat",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-icon-flat.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-ui-theme-app-shell",
+      "label": "Wintermuted UI Theme App Shell",
+      "source": "assets/svg/wintermuted-ui-theme/wm-ui-theme-app-shell.svg",
+      "project": "Wintermuted UI Theme",
+      "logoType": "Glyph",
+      "groups": [
+        "Wintermuted UI Theme",
+        "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
       "id": "sub-killer-savings-v1",
       "label": "Sub Killer Savings V1",
       "source": "assets/svg/sub-killer-savings/sub-killer-savings-v1.svg",
@@ -1184,6 +1536,314 @@
       "groups": [
         "Sub Killer Savings",
         "Concept Iterations"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-assets-workflows-icon",
+      "label": "Agentic Icon Builder Mark",
+      "source": "assets/svg/wm-assets-workflows/wm-assets-workflows-icon.svg",
+      "project": "wm-assets-workflows",
+      "logoType": "Glyph",
+      "groups": [
+        "wm-assets-workflows"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon",
+      "label": "JSON Resume Wintermuted Mark",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon-grayscale",
+      "label": "JSON Resume Wintermuted Mark Grayscale",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon-grayscale.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon-grayscale-document",
+      "label": "JSON Resume Wintermuted Mark Grayscale Document",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon-grayscale-document.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon-grayscale-json",
+      "label": "JSON Resume Wintermuted Mark Grayscale JSON",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon-grayscale-json.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon-grayscale-profile",
+      "label": "JSON Resume Wintermuted Mark Grayscale Profile",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon-grayscale-profile.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon-grayscale-person-json",
+      "label": "JSON Resume Wintermuted Mark Grayscale Person JSON",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon-grayscale-person-json.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "json-resume-wintermuted-icon-grayscale-document-json",
+      "label": "JSON Resume Wintermuted Mark Grayscale Document JSON",
+      "source": "assets/svg/json-resume-wintermuted/json-resume-wintermuted-icon-grayscale-document-json.svg",
+      "project": "json-resume-wintermuted",
+      "logoType": "Glyph",
+      "groups": [
+        "json-resume-wintermuted"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-assets-workflows-icon-grayscale",
+      "label": "Agentic Icon Builder Mark Grayscale",
+      "source": "assets/svg/wm-assets-workflows/wm-assets-workflows-icon-grayscale.svg",
+      "project": "wm-assets-workflows",
+      "logoType": "Glyph",
+      "groups": [
+        "wm-assets-workflows"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-assets-workflows-icon-mono",
+      "label": "Agentic Icon Builder Mark Mono",
+      "source": "assets/svg/wm-assets-workflows/wm-assets-workflows-icon-mono.svg",
+      "project": "wm-assets-workflows",
+      "logoType": "Glyph",
+      "groups": [
+        "wm-assets-workflows"
+      ],
+      "variants": [
+        {
+          "size": 64,
+          "theme": "light"
+        },
+        {
+          "size": 64,
+          "theme": "dark"
+        },
+        {
+          "size": 128,
+          "theme": "light"
+        },
+        {
+          "size": 128,
+          "theme": "dark"
+        }
+      ]
+    },
+    {
+      "id": "wm-assets-workflows-icon-mono-inverted",
+      "label": "Agentic Icon Builder Mark Mono Inverted",
+      "source": "assets/svg/wm-assets-workflows/wm-assets-workflows-icon-mono-inverted.svg",
+      "project": "wm-assets-workflows",
+      "logoType": "Glyph",
+      "groups": [
+        "wm-assets-workflows"
       ],
       "variants": [
         {

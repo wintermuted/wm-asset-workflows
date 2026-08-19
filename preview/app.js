@@ -779,7 +779,7 @@ function positionPrimaryTooltip(tooltip, container, element) {
   tooltip.style.left = `${left}px`;
   tooltip.style.top = `${top}px`;
 }
-function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController, points, shapeModeBanner, gridOverlay, gridVisibilityToggle, gridSnapToggle, gridSizeInput) {
+function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles, guides, asset, layersController, points, shapeModeBanner, gridOverlay, gridVisibilityToggle, gridSnapToggle, gridSizeInput, onLayerEdited) {
   const getGraphics = () => {
     const svg = root.querySelector("svg");
     return svg ? Array.from(svg.querySelectorAll(":is(path, rect, circle, ellipse, line, polyline, polygon)")) : [];
@@ -1014,6 +1014,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const attrs = element.localName === "line" ? index === 0 ? { x1: String(x), y1: String(y) } : { x2: String(x), y2: String(y) } : { points: serialized };
     updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs });
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    onLayerEdited?.();
     if (element.localName === "line") {
       layersController.syncGeometryInput?.(shapeEditLayerNumber, index === 0 ? "x1" : "x2", String(x));
       layersController.syncGeometryInput?.(shapeEditLayerNumber, index === 0 ? "y1" : "y2", String(y));
@@ -1120,6 +1121,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     const serialized = serializeSvgPoints(next);
     updateAssetLayerEdits(asset.id, shapeEditLayerNumber, { attrs: { points: serialized } });
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
+    onLayerEdited?.();
     layersController.syncGeometryInput?.(shapeEditLayerNumber, "points", serialized);
     updatePointHandles();
   };
@@ -1192,6 +1194,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
     applyAssetLayerEdits(root.querySelector("svg"), asset.id);
     for (const layerNumber of layerNumbers) syncLayerDimensions(layerNumber);
     updateTooltip(layersController.getSelectedLayer());
+    onLayerEdited?.();
   };
   const onKeydown = (event) => {
     if (event.key === "Escape" && shapeEditLayerNumber !== null) {
@@ -1477,6 +1480,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       updateAssetLayerEdits(asset.id, layerNumber, { rotation });
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
       updateTooltip(layerNumber);
+      onLayerEdited?.();
       return;
     }
     if (groupResizeState && event.pointerId === groupResizeState.pointerId) {
@@ -1545,6 +1549,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
       for (const entry of entries) syncLayerDimensions(entry.layerNumber);
       updateHandles(layersController.getSelectedLayer());
+      onLayerEdited?.();
       return;
     }
     if (resizeState && event.pointerId === resizeState.pointerId) {
@@ -1602,6 +1607,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
         });
         applyAssetLayerEdits(root.querySelector("svg"), asset.id);
         syncLayerDimensions(layerNumber);
+        onLayerEdited?.();
       };
       applyResize({ left, top, right, bottom });
       clearGuides();
@@ -1664,6 +1670,7 @@ function enablePrimaryLayerInteraction(root, previewContainer, tooltip, handles,
       }
       applyAssetLayerEdits(root.querySelector("svg"), asset.id);
       for (const layerNumber of dragState.layerNumbers) syncLayerDimensions(layerNumber);
+      onLayerEdited?.();
     };
     applyGroupOffset(deltaX, deltaY);
     clearGuides();
@@ -2933,6 +2940,91 @@ var COMMON_PREVIEW_SIZES = [
 function projectRouteHref(projectName) {
   return `#project/${encodeURIComponent(projectName)}`;
 }
+function collectColorUsageAcrossAssets() {
+  return Promise.all(assetData.map((asset) => loadAssetColors(asset.source).then((colors) => ({ asset, colors: Array.isArray(colors) ? colors : [] })).catch(() => ({ asset, colors: [] })))).then((entries) => {
+    const usage = /* @__PURE__ */ new Map();
+    for (const { asset, colors } of entries) {
+      const project = projectForAsset(asset);
+      for (const color of colors) {
+        const key = String(color).toUpperCase();
+        if (!usage.has(key)) usage.set(key, { color: key, projects: /* @__PURE__ */ new Map() });
+        const record = usage.get(key);
+        if (!record.projects.has(project)) record.projects.set(project, []);
+        record.projects.get(project).push(asset);
+      }
+    }
+    return { usage, entries };
+  });
+}
+function renderProjectIconColors(projectName) {
+  const list = document.getElementById("project-icon-colors-list");
+  const empty = document.getElementById("project-icon-colors-empty");
+  if (!list || !empty) return;
+  list.innerHTML = "";
+  list.dataset.project = projectName;
+  empty.hidden = false;
+  empty.textContent = "Loading colors from project icons...";
+  collectColorUsageAcrossAssets().then(({ usage, entries }) => {
+    if (!list.isConnected || list.dataset.project !== projectName) return;
+    const projectColors = /* @__PURE__ */ new Set();
+    for (const { asset, colors } of entries) {
+      if (projectForAsset(asset) !== projectName) continue;
+      for (const color of colors) projectColors.add(String(color).toUpperCase());
+    }
+    list.innerHTML = "";
+    if (!projectColors.size) {
+      empty.hidden = false;
+      empty.textContent = "No colors found in this project's icons yet.";
+      return;
+    }
+    empty.hidden = true;
+    for (const color of Array.from(projectColors).sort()) {
+      const record = usage.get(color);
+      const item = document.createElement("div");
+      item.className = "project-icon-color";
+      const swatch = document.createElement("span");
+      swatch.className = "project-icon-color-swatch";
+      swatch.style.backgroundColor = color;
+      swatch.setAttribute("aria-hidden", "true");
+      const value = document.createElement("code");
+      value.className = "project-icon-color-value";
+      value.textContent = color;
+      const tooltip = document.createElement("div");
+      tooltip.className = "project-icon-color-tooltip";
+      tooltip.setAttribute("role", "group");
+      tooltip.setAttribute("aria-label", `Projects using ${color}`);
+      const heading = document.createElement("p");
+      heading.className = "project-icon-color-tooltip-heading";
+      const projectNames = Array.from(record?.projects.keys() || []).sort();
+      heading.textContent = `${color} \xB7 used in ${projectNames.length} project${projectNames.length === 1 ? "" : "s"}`;
+      tooltip.appendChild(heading);
+      const links = document.createElement("ul");
+      links.className = "project-icon-color-tooltip-links";
+      for (const name of projectNames) {
+        const assets = record.projects.get(name) || [];
+        const row = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = projectRouteHref(name);
+        link.textContent = name;
+        const count = document.createElement("span");
+        count.className = "project-icon-color-tooltip-count";
+        count.textContent = `${assets.length} icon${assets.length === 1 ? "" : "s"}`;
+        row.append(link, count);
+        links.appendChild(row);
+      }
+      tooltip.appendChild(links);
+      item.setAttribute("tabindex", "0");
+      item.setAttribute("aria-label", `${color}, used in ${projectNames.join(", ")}`);
+      item.append(swatch, value, tooltip);
+      list.appendChild(item);
+    }
+  }).catch(() => {
+    if (!list.isConnected || list.dataset.project !== projectName) return;
+    list.innerHTML = "";
+    empty.hidden = false;
+    empty.textContent = "Colors unavailable.";
+  });
+}
 function sourceRouteHref(projectName, sourcePath) {
   return `#source/${encodeURIComponent(projectName)}/${encodeURIComponent(sourcePath)}`;
 }
@@ -3207,17 +3299,34 @@ function renderAssetDetail(assetId) {
     saveButton.disabled = !assetModified.has(asset.id);
   };
   syncSaveButton();
-  saveButton.onclick = () => {
+  saveButton.onclick = async () => {
     const svg = primarySvg.querySelector("svg");
     if (!svg || !assetModified.has(asset.id)) return;
-    const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${asset.id}.svg`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-    assetModified.delete(asset.id);
-    syncSaveButton();
+    saveButton.disabled = true;
+    try {
+      const response = await fetch("/~asset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: asset.id,
+          svg: new XMLSerializer().serializeToString(svg)
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result.error || "Asset save failed");
+      assetSvgDataCache.delete(asset.source);
+      assetLayerEdits.delete(asset.id);
+      assetViewBoxEdits.delete(asset.id);
+      assetAccessibilityEdits.delete(asset.id);
+      assetSourceSizeEdits.delete(asset.id);
+      assetGroupEdits.delete(asset.id);
+      assetModified.delete(asset.id);
+      showToast(`Saved ${result.source}.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Asset save failed");
+    } finally {
+      syncSaveButton();
+    }
   };
   loadAssetSvgData(asset.source).then((data) => {
     const viewBox = assetViewBoxEdits.get(asset.id) || parseSvgViewBox(data.viewBox);
@@ -3286,7 +3395,7 @@ function renderAssetDetail(assetId) {
     (layerNumber) => primaryInteractionState.updateTooltip(layerNumber),
     (layerNumbers) => setPrimarySvgMultiSelectHighlight(primarySvg, layerNumbers)
   );
-  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController, primaryPoints, primaryShapeMode, primaryGrid, gridVisibilityToggle, gridSnapToggle, gridSizeInput);
+  const primaryInteraction = enablePrimaryLayerInteraction(primarySvg, primaryPreview, primaryTooltip, primaryHandles, primaryGuides, asset, layersController, primaryPoints, primaryShapeMode, primaryGrid, gridVisibilityToggle, gridSnapToggle, gridSizeInput, syncSaveButton);
   primaryInteractionState.updateTooltip = primaryInteraction.updateTooltip;
   activePrimaryLayerInteractionCleanup = primaryInteraction.cleanup;
   renderAssetColorList(colorsList, asset, (color, highlighted) => {
@@ -3518,6 +3627,7 @@ function renderProjectDetail(projectName) {
     }
   };
   renderFavoriteColors();
+  renderProjectIconColors(targetProject);
   const slots = normalizeProjectSlots(targetProject);
   const projectSlug = String(projectMeta?.slug || slugify(targetProject));
   generatePanel.hidden = true;

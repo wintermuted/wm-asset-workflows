@@ -5,6 +5,51 @@
   width: 100%;
   box-sizing: border-box;
   padding: clamp(1rem, 2vw, 2rem);
+  flex: 1 0 auto;
+}
+
+/* Keep the footer pinned below the content on short pages without overlaying it. */
+body {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.app-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  border-top: 1px solid var(--wm-color-border);
+  background: var(--wm-color-surface);
+}
+
+.app-footer-inner {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.75rem clamp(1rem, 2vw, 2rem);
+  gap: 1rem;
+}
+
+.app-footer-meta {
+  margin: 0;
+  color: var(--wm-color-text-muted);
+  font-size: 0.72rem;
+}
+
+/* The base topbar github style is a fixed 28px icon-only circle; relax it for the labeled footer link. */
+.app-footer-github {
+  width: auto;
+  height: auto;
+  gap: 0.45rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.app-footer-actions {
+  margin-left: 0;
 }
 
 .preview-shell:has(#asset-detail:not(.is-hidden)) {
@@ -2440,6 +2485,138 @@ button.asset-layer-number {
 .project-custom-color-status {
   min-height: 1rem;
   margin-top: 0.4rem;
+}
+
+.project-icon-colors {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--wm-color-border);
+}
+
+.project-icon-colors-heading {
+  margin: 0 0 0.5rem;
+  color: var(--wm-color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-icon-colors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.project-icon-colors-empty {
+  margin: 0;
+  color: var(--wm-color-text-muted);
+  font-size: 0.78rem;
+}
+
+.project-icon-color {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.45rem 0.2rem 0.25rem;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-xs);
+  background: var(--wm-color-surface);
+  gap: 0.35rem;
+}
+
+.project-icon-color:hover,
+.project-icon-color:focus-visible,
+.project-icon-color:focus-within {
+  z-index: 6;
+  border-color: var(--wm-color-border-strong);
+  outline: none;
+}
+
+.project-icon-color-swatch {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: 2px;
+}
+
+.project-icon-color-value {
+  color: var(--wm-color-text);
+  font-family: var(--wm-font-mono, monospace);
+  font-size: 0.72rem;
+}
+
+/* Interactive popover rather than a CSS ::after tooltip so the project links inside
+   remain hoverable and clickable. */
+.project-icon-color-tooltip {
+  position: absolute;
+  z-index: 5;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  min-width: 12rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface-solid);
+  box-shadow: var(--wm-shadow-sm);
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease;
+  transform: translateY(0.2rem);
+  visibility: hidden;
+}
+
+/* Invisible bridge spanning the gap between the chip and the popover so the pointer
+   can travel into the tooltip without a mouseleave. */
+.project-icon-color-tooltip::before {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 0.5rem;
+  content: "";
+}
+
+.project-icon-color:hover .project-icon-color-tooltip,
+.project-icon-color:focus-visible .project-icon-color-tooltip,
+.project-icon-color:focus-within .project-icon-color-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.project-icon-color-tooltip-heading {
+  margin: 0 0 0.4rem;
+  color: var(--wm-color-text-muted);
+  font-family: var(--wm-font-mono, monospace);
+  font-size: 0.68rem;
+}
+
+.project-icon-color-tooltip-links {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  gap: 0.25rem;
+  list-style: none;
+}
+
+.project-icon-color-tooltip-links li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.project-icon-color-tooltip-links a {
+  color: var(--wm-color-text);
+  font-size: 0.76rem;
+}
+
+.project-icon-color-tooltip-count {
+  color: var(--wm-color-text-muted);
+  font-size: 0.68rem;
+  white-space: nowrap;
 }
 
 @media (max-width: 560px) {
