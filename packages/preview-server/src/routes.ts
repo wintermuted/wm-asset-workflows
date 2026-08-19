@@ -1,5 +1,6 @@
 import { scaffoldProject, renameProject } from "./scaffolding.js";
 import { uploadGroundingImage, updateProjectColor, updateGroundingSource } from "./grounding.js";
+import { saveAssetSvg } from "./assets.js";
 import { serveStaticFile } from "./config.js";
 
 async function readRequestJson(req) {
@@ -16,6 +17,16 @@ function json(res, status, body) {
 export function createRequestHandler({ root, reload }) {
   return async (req, res) => {
     if (req.url === "/~reload") { reload.connect(req, res); return; }
+    if (req.method === "POST" && req.url === "/~asset") {
+      let payload;
+      try { payload = await readRequestJson(req); } catch { json(res, 400, { error: "Invalid JSON" }); return; }
+      try {
+        const result = await saveAssetSvg(root, String(payload.id || "").trim(), String(payload.svg || ""));
+        reload.suppressFor(1000);
+        json(res, 200, { ok: true, ...result });
+      } catch (error) { json(res, 400, { error: error.message }); }
+      return;
+    }
     if (req.method === "POST" && req.url === "/~scaffold") {
       let payload;
       try { payload = await readRequestJson(req); } catch { json(res, 400, { error: "Invalid JSON" }); return; }
